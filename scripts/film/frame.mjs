@@ -167,7 +167,10 @@ export class Film {
     return this.frames;
   }
   async still(file) {
-    const { data } = await this.cdp.send("Page.captureScreenshot", { format: "png" });
+    // at the page's own density: asked without a clip, Chrome hands back one pixel per point
+    const { data } = await this.cdp.send("Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: this.width, height: this.height, scale: this.scale } });
+    // and after a capture through a clip, Chrome reads wheel distances at one pixel to one
+    this.cropped = true;
     fs.writeFileSync(file, Buffer.from(data, "base64"));
   }
 }
