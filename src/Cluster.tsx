@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Page, type Thread } from "./data";
-import type { Cluster, Group, PlacedItem } from "./layout";
+import { COL_GAP, type Cluster, type Group, type PlacedItem } from "./layout";
 import { Glyph } from "./glyphs";
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -18,13 +18,15 @@ function lastActive(at: number) {
 // calendar. Blocks stack by how much happened: prompts typed, and a page published counts
 // as a full day's work.
 const PITCH = 14, BLOCK = 10, WEEK_GAP = 6, MAX_DAYS = 63;
+// the strip far out: 21 days (the canvas holds three weeks), at this many screen pixels per unit
+const STRIP_W = 21 * PITCH + 3 * WEEK_GAP - (PITCH - BLOCK), STRIP_K = 0.34;
 
-function ActivityField({ threads, pages, width }: { threads: Thread[]; pages: Page[]; width: number }) {
+function ActivityField({ threads, pages, days }: { threads: Thread[]; pages: Page[]; days: number }) {
   const cols = useMemo(() => {
     const load = new Map<string, number>();
     for (const t of threads) for (const [d, n] of Object.entries(t.days || {})) load.set(d, (load.get(d) || 0) + n);
     for (const p of pages) for (const v of p.versions) { const d = dayKey(new Date(v.at)); load.set(d, (load.get(d) || 0) + 6); }
-    const fit = Math.min(MAX_DAYS, Math.floor((width + WEEK_GAP * 5) / (PITCH + WEEK_GAP / 7)));
+    const fit = Math.min(MAX_DAYS, days);
     const out: { level: number; today: boolean; weekStart: boolean }[] = [];
     const now = new Date();
     for (let i = fit - 1; i >= 0; i--) {
@@ -33,7 +35,7 @@ function ActivityField({ threads, pages, width }: { threads: Thread[]; pages: Pa
       out.push({ level: n === 0 ? 0 : n < 6 ? 1 : n < 25 ? 2 : 3, today: i === 0, weekStart: d.getDay() === 1 });
     }
     return out;
-  }, [threads, pages, width]);
+  }, [threads, pages, days]);
 
   let x = 0;
   const cells: React.ReactNode[] = [];
@@ -55,7 +57,7 @@ function ActivityField({ threads, pages, width }: { threads: Thread[]; pages: Pa
     }
     x += PITCH;
   });
-  return <div className="absolute bottom-0 right-0" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
+  return <div className="relative" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
 }
 
 export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen }: {
@@ -80,24 +82,32 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
       <Layer>
         <div className="absolute" style={{ left: c.x, top: c.y, width: c.w, height: 96 }}>
           <button
-            className="wb-z type-project absolute bottom-0 left-[-3px] whitespace-nowrap text-left"
-            style={{ fontSize: size }}
+            className="wb-z type-project absolute bottom-0 left-[-3px] flex items-baseline whitespace-nowrap text-left"
+            style={{ fontSize: size, maxWidth: c.w + COL_GAP * 0.6 }}
             onClick={() => onFocus(c)}
             onMouseEnter={() => onHover(c.key, true)}
             onMouseLeave={() => onHover(c.key, false)}
           >
-            <span style={{ color: "var(--title-ink, var(--ink))" }}>{c.name}</span>
-            <span style={{ color: "var(--quiet)", marginLeft: "0.32em", opacity: far ? 0 : 1, transition: "opacity 240ms var(--ease-out)" }}>{lastActive(c.at)}</span>
+            <span className="shrink-0" style={{ color: "var(--title-ink, var(--ink))" }}>{c.name}</span>
+            {/* close in, when it was last worked on; far out, its three weeks of work, one size on
+                screen, for finding your way */}
+            {far ? (
+              // short of room, it gives up its oldest days first: today stays
+              <span className="pointer-events-none relative inline-block min-w-0 shrink overflow-hidden" style={{ width: `calc(${STRIP_W}px * ${STRIP_K} / var(--z, 1))`, height: "0.72em", marginLeft: "0.28em" }}>
+                <span className="absolute bottom-0 right-0" style={{ transform: `scale(calc(${STRIP_K} / var(--z, 1)))`, transformOrigin: "100% 100%", animation: "wb-strip 300ms var(--ease-out) both" }}>
+                  <ActivityField threads={projectThreads} pages={c.pages} days={21} />
+                </span>
+              </span>
+            ) : (
+              <span style={{ color: "var(--quiet)", marginLeft: "0.32em", animation: "wb-strip 240ms var(--ease-out) both" }}>{lastActive(c.at)}</span>
+            )}
           </button>
-        </div>
-        <div className="absolute transition-opacity duration-300" style={{ left: c.x, top: c.y + 112, width: c.w, height: 36, opacity: far ? 0 : 1 }}>
-          <ActivityField threads={projectThreads} pages={c.pages} width={c.w} />
         </div>
       </Layer>
 
       {c.groups.map((g) => (
         <Layer key={g.id}>
-          <GroupTitle g={g} far={far} />
+          <GroupTitle g={g} far={far} colW={c.w} />
           {g.items.map((it, i) => (
             it.kind === "note"
               ? <Note key={it.key} it={it} far={far} />
@@ -135,25 +145,24 @@ function Layer({ children }: { children: React.ReactNode }) {
   return <div className="wb-layer">{children}</div>;
 }
 
-// A group's title: the thread's own caption, and when. It opens the thread it came from.
-function GroupTitle({ g, far }: { g: Group; far: boolean }) {
+// A group's title: the thread's own caption, and when. It opens the thread it came from. Far out
+// it holds one size on screen, growing up into the air above its group, so it never has to hide.
+function GroupTitle({ g, far, colW }: { g: Group; far: boolean; colW: number }) {
   const inner = (
     <>
-      <span className="min-w-0 shrink truncate text-[15px] font-[560] tracking-[-0.014em] text-[var(--ink)]">{g.title}</span>
-      <span className="type-mono shrink-0 text-[var(--quiet)]">{when(g.at)}</span>
+      {/* past about 10% there's no air left above a group for it: it fades */}
+      <span className="wb-z min-w-0 shrink truncate font-[560] tracking-[-0.014em] text-[var(--ink)]" style={{ fontSize: "max(15px, calc(12.5px / var(--z, 1)))", lineHeight: 1.2, opacity: "clamp(0, calc((var(--z, 1) - 0.095) * 100), 1)" }}>{g.title}</span>
+      <span className="type-mono shrink-0 text-[var(--quiet)]" style={{ opacity: far ? 0 : 1, transition: "opacity 240ms var(--ease-out)" }}>{when(g.at)}</span>
       {g.thread && <Glyph name="comment" size={15} className="shrink-0 text-[var(--quiet)] opacity-0 transition-opacity duration-200 group-hover:opacity-100" />}
     </>
   );
-  const style: React.CSSProperties = {
-    left: g.x, top: g.y - 2, width: Math.max(g.w, 640), height: 32,
-    opacity: far ? 0 : 1, pointerEvents: far ? "none" : "auto", transition: "opacity 240ms var(--ease-out)",
-  };
+  const style: React.CSSProperties = { left: g.x, top: g.y + 34, transform: "translateY(-100%)", width: far ? colW : Math.max(g.w, 640) };
   return g.thread ? (
-    <a href={threadLink(g.thread)} target="_blank" rel="noreferrer" className="group absolute flex items-center gap-3" style={style} onPointerDown={(e) => e.stopPropagation()}>
+    <a href={threadLink(g.thread)} target="_blank" rel="noreferrer" className="group absolute flex items-baseline gap-3" style={style} onPointerDown={(e) => e.stopPropagation()}>
       {inner}
     </a>
   ) : (
-    <div className="absolute flex items-center gap-3" style={style}>{inner}</div>
+    <div className="absolute flex items-baseline gap-3" style={style}>{inner}</div>
   );
 }
 

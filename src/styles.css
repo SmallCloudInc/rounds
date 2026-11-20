@@ -192,3 +192,6 @@ textarea:focus-visible, input:focus-visible { outline: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* the name's trailing word and the activity strip trade places at the far line */
+@keyframes wb-strip { from { opacity: 0 } }
