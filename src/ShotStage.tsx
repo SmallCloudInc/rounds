@@ -23,9 +23,9 @@ function fitRect(s: Shot): Rect {
 const flight = (from: Rect, to: Rect) =>
   `translate(${from.x - to.x}px, ${from.y - to.y}px) scale(${from.w / to.w}, ${from.h / to.h})`;
 
-export function ShotStage({ opening, comments, onComment, onStep, onClose }: {
+export function ShotStage({ opening, comments, onComment, onStep, onClosing, onClose }: {
   opening: ShotOpening; comments: Comment[];
-  onComment: (c: Comment) => void; onStep: (key: string) => void; onClose: () => void;
+  onComment: (c: Comment) => void; onStep: (key: string) => void; onClosing?: () => void; onClose: () => void;
 }) {
   const { group } = opening;
   const shots = group.all.filter((it): it is ShotItem => it.kind === "shot");
@@ -77,6 +77,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClose }: {
   const close = () => {
     if (closing) return;
     setClosing(true);
+    onClosing?.(); // the canvas clears as the card flies back, not after it lands
     const el = document.querySelector(`[data-key="${shots[i].key}"]`) as HTMLElement | null;
     const r = el?.getBoundingClientRect();
     const to = r ? { x: r.left, y: r.top, w: r.width, h: r.height } : opening.from;

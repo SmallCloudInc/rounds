@@ -65,6 +65,9 @@ export default function App() {
   const [shots, setShots] = useState<ShotOpening | null>(null);
   const [shotKey, setShotKey] = useState<string | null>(null);
   const open = openPage_ || shots;
+  // the canvas behind a screen or page blurs and dims with its flight in, and clears with its flight back
+  const [leaving, setLeaving] = useState(false);
+  const veiled = !!open && !leaving;
   const [focus, setFocus] = useState<string | null>(null);
   const [asOf, setAsOf] = useState<number | null>(null);
   const [scrub, setScrub] = useState(false);
@@ -595,7 +598,7 @@ export default function App() {
       onDragLeave={() => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(null); } }}
       onDrop={onDrop}
     >
-      <Ground cam={camRef} dim={!!open} />
+      <Ground cam={camRef} dim={veiled} />
 
       {/* the days before this one, waiting behind it */}
       {/* drawn deepest first, so each nearer day lies over the one behind it */}
@@ -653,10 +656,6 @@ export default function App() {
       <div
         ref={worldEl}
         className="absolute left-0 top-0 origin-top-left will-change-transform"
-        style={{
-          transition: open ? "filter 520ms var(--ease-out)" : "filter 360ms var(--ease-out)",
-          filter: open ? "blur(10px) saturate(0.85)" : "none",
-        }}
       >
         {world?.clusters.map((c) => (
           <ClusterView
@@ -721,9 +720,19 @@ export default function App() {
       </div>
       </div>
 
+      {/* Behind an open screen: the canvas blurred and veiled, fading in on the card's own timing
+          as it flies up and out as it flies back. One fixed layer that blurs what's behind it:
+          a filter on the whole world cost WebKit a 45-70 ms frame as each screen opened. The
+          blur is what the world's own 10px came to at this zoom. */}
       <div
         className="pointer-events-none fixed inset-0"
-        style={{ background: "var(--wall)", opacity: open ? 0.42 : 0, transition: "opacity 420ms var(--ease-out)" }}
+        style={{
+          background: "color-mix(in srgb, var(--wall) 42%, transparent)",
+          backdropFilter: open ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
+          WebkitBackdropFilter: open ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
+          opacity: veiled ? 1 : 0,
+          transition: veiled ? "opacity 560ms cubic-bezier(0.3, 0.7, 0.1, 1)" : "opacity 420ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
       />
 
       {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
@@ -763,7 +772,8 @@ export default function App() {
           comments={index.comments}
           onComment={(c) => setIndex((i) => (i ? { ...i, comments: [...i.comments, c] } : i))}
           onStep={setShotKey}
-          onClose={() => { setShots(null); setShotKey(null); }}
+          onClosing={() => setLeaving(true)}
+          onClose={() => { setShots(null); setShotKey(null); setLeaving(false); }}
         />
       )}
 
@@ -773,7 +783,8 @@ export default function App() {
           opening={openPage_}
           index={index}
           onComment={(c) => setIndex((i) => (i ? { ...i, comments: [...i.comments, c] } : i))}
-          onClose={() => setOpen(null)}
+          onClosing={() => setLeaving(true)}
+          onClose={() => { setOpen(null); setLeaving(false); }}
         />
       )}
     </div>

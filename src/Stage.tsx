@@ -15,8 +15,8 @@ function target(): Rect {
   return { x: (innerWidth - w) / 2, y: top, w, h: innerHeight - top - bottom };
 }
 
-export function Stage({ opening, index, onComment, onClose }: {
-  opening: Opening; index: Index; onComment: (c: Comment) => void; onClose: () => void;
+export function Stage({ opening, index, onComment, onClosing, onClose }: {
+  opening: Opening; index: Index; onComment: (c: Comment) => void; onClosing?: () => void; onClose: () => void;
 }) {
   const { page, from } = opening;
   const versions = page.versions;
@@ -64,6 +64,7 @@ export function Stage({ opening, index, onComment, onClose }: {
   const close = () => {
     if (closing) return;
     setClosing(true);
+    onClosing?.(); // the canvas clears as the page flies back, not after it lands
     const el = box.current!;
     const t = rect;
     const a = el.animate(
