@@ -1,0 +1,55 @@
+{
+ "id": "6e861a3615f36c5b",
+ "kind": "change",
+ "caption": "The lab is the homepage. The Work window is the showcase, with three projects on the water.",
+ "topic": "Homepage",
+ "cwd": "/demo/krispuckett.com",
+ "at": 1792597852000,
+ "shots": [
+  {
+   "hash": "4ef99418a6a46d77",
+   "ext": "jpg",
+   "w": 2160,
+   "h": 1350,
+   "name": "home-work"
+  },
+  {
+   "hash": "89b300697bc49579",
+   "ext": "jpg",
+   "w": 1179,
+   "h": 1977,
+   "name": "home-phone"
+  }
+ ],
+ "before": [
+  {
+   "hash": "671795e83b340fd2",
+   "ext": "jpg",
+   "w": 2160,
+   "h": 1350,
+   "name": "home"
+  },
+  {
+   "hash": "bc95046bc7e9c101",
+   "ext": "jpg",
+   "w": 1179,
+   "h": 1977,
+   "name": "home-phone"
+  }
+ ],
+ "range": "c476036..2ecbc6c",
+ "commits": [
+  {
+   "sha": "2ecbc6c",
+   "subject": "Add: the lab is the homepage"
+  },
+  {
+   "sha": "9766d7d",
+   "subject": "Lab: the Work window is the new showcase, in every era"
+  },
+  {
+   "sha": "c476036",
+   "subject": "Lab: three featured projects on the water, a real profile, the dock back"
+  }
+ ]
+}
