@@ -55,9 +55,10 @@ function titleFrom(caption: string, fallback: string) {
   return t.length > 72 ? `${t.slice(0, 70).replace(/\s+\S*$/, "")}…` : t;
 }
 
-export function layout(index: Index, asOf: number | null = null): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
+// With `all`, nothing ages out and no project stops at ten groups: one session's whole history.
+export function layout(index: Index, asOf: number | null = null, all = false): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
   const end = asOf ?? Date.now();
-  const start = end - WINDOW;
+  const start = all ? -Infinity : end - WINDOW;
   const threadById = new Map(index.threads.map((t) => [t.id, t]));
 
   const raw = Object.keys(index.projects).map((key) => {
@@ -109,9 +110,9 @@ export function layout(index: Index, asOf: number | null = null): { clusters: Cl
       else gs.push({ id: `p-${page.id}`, thread: page.thread, first: v.at, last: v.at, caption: page.topic || page.title, topic: true, sets: [], items: [item] });
     }
     gs.sort((a, b) => b.last - a.last);
-    const groups = gs.slice(0, GROUPS_PER_PROJECT);
+    const groups = all ? gs : gs.slice(0, GROUPS_PER_PROJECT);
     const threads = index.threads
-      .filter((t) => t.project === key && !t.archived && t.at <= end + 864e5 && end - t.at < WINDOW)
+      .filter((t) => t.project === key && !t.archived && t.at <= end + 864e5 && (all || end - t.at < WINDOW))
       .filter((t) => !groups.some((g) => g.thread === t.id))
       .sort((a, b) => b.at - a.at)
       .slice(0, 6);

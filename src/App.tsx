@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { reducedTransparency } from "./look";
-import { loadIndex, readSeen, markSeen, type Index, type Page } from "./data";
+import { clean, loadIndex, readSeen, markSeen, type Index, type Page } from "./data";
 import { layout, type Cluster, type Group } from "./layout";
 import { useCamera, fit, type Cam } from "./camera";
 import { Stage, type Opening } from "./Stage";
@@ -76,6 +76,10 @@ export default function App() {
   const [timeOpen, setTimeOpen] = useState<DOMRect | null>(null);
   const [searching, setSearching] = useState(false);
   const [lit, setLit] = useState<string | null>(null);
+  // one session, picked in search: the canvas and the timeline show only what it made, all of it
+  const [chat, setChat] = useState<string | null>(null);
+  // after the canvas re-forms for a session (or for everything again): where the camera lands
+  const refit = useRef<{ to: "session" | "all"; find?: string } | null>(null);
   const finding = useRef<{ id: string; at: number; back: boolean; still?: boolean } | null>(null);
   const [findTick, setFindTick] = useState(0);
   const zoomEl = useRef<HTMLButtonElement | null>(null);
@@ -142,7 +146,13 @@ export default function App() {
     const w = innerWidth / s.s / c.z, h = innerHeight / s.s / c.z;
     setView({ x: x0 - w, y: y0 - h, w: w * 3, h: h * 3 });
   }
-  const world = useMemo(() => (index ? layout(index, asOf) : null), [index, asOf]);
+  const shown = useMemo(() => (!index || !chat ? index : {
+    ...index,
+    threads: index.threads.filter((t) => t.id === chat),
+    sets: index.sets.filter((s) => s.thread === chat),
+    pages: index.pages.filter((p) => p.thread === chat),
+  }), [index, chat]);
+  const world = useMemo(() => (shown ? layout(shown, asOf, !!chat) : null), [shown, asOf, chat]);
   useLayoutEffect(() => {
     if (!SPLITS || !world) return;
     let area = 0;
@@ -368,13 +378,14 @@ export default function App() {
       if (e.key === "Escape" && timeShown) { closeTime(); return; }
       if (e.key === "Escape" && tool !== "move") { setTool("move"); return; }
       if (e.key === "Escape" && asOf != null) { changeDay(null); return; }
+      if (e.key === "Escape" && chat) { showSession(null); return; }
       if (e.key === "0" || e.key === "Escape") fitAll(true);
       if (e.key === "=" || e.key === "+") zoomBy(1.4);
       if (e.key === "-") zoomBy(1 / 1.4);
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [open, fitAll, asOf, searching, tool, timeShown]);
+  }, [open, fitAll, asOf, searching, tool, timeShown, chat]);
   // The time machine is one switch: open, the canvas can be on any day; closed, it's today.
   const toggleTime = (from?: DOMRect) => {
     if (from) setTimeOpen(from);
@@ -393,19 +404,23 @@ export default function App() {
   };
 
   // Frame a group: its screens fill the width, its title near the top of what you see.
-  const frameGroup = (g: Group) => {
-    touched.current = true;
+  const groupView = (g: Group) => {
     const s = sheet.current;
     // in the time machine the sheet is the window: its own width, from its top edge down
     const lw = innerWidth, lh = (innerHeight - s.top) / s.s;
     const z = Math.min(1.1, (lw - 192) / Math.max(g.w, 640), (lh - 280) / g.h);
-    camera.glide({ z, x: lw / 2 - (g.x + g.w / 2) * z, y: (s.top ? 110 : 140) - g.y * z });
+    return { z, x: lw / 2 - (g.x + g.w / 2) * z, y: (s.top ? 110 : 140) - g.y * z };
+  };
+  const frameGroup = (g: Group) => {
+    touched.current = true;
+    camera.glide(groupView(g));
   };
 
   // A search pick: go back to the day it lived in if today's canvas no longer holds it, then
   // fly to its group and light it.
   const find = (h: Hit) => {
     setSearching(false);
+    if (h.kind === "chat") return showSession(h.find);
     finding.current = { id: h.find, at: h.at, back: false };
     const recent = h.at > Date.now() - 20 * 864e5;
     const target = recent ? null : endOfDay(new Date(h.at));
@@ -431,11 +446,14 @@ export default function App() {
   useEffect(() => { if (!lit) return; const t = setTimeout(() => setLit(null), 2400); return () => clearTimeout(t); }, [lit]);
 
   // A project fills the width, its name near the top; the rest is a scroll away.
+  const framed = (c: Cluster) => {
+    const z = Math.min(1.1, (innerWidth - 2 * 96) / Math.max(c.w, 3 * 300 + 72));
+    return { z, x: innerWidth / 2 - (c.x + c.w / 2) * z, y: 72 - c.y * z };
+  };
   const focusCluster = (c: Cluster) => {
     touched.current = true;
     setFocus(null);
-    const z = Math.min(1.1, (innerWidth - 2 * 96) / Math.max(c.w, 3 * 300 + 72));
-    camera.glide({ z, x: innerWidth / 2 - (c.x + c.w / 2) * z, y: 72 - c.y * z });
+    camera.glide(framed(c));
   };
 
   const openPage = (page: Page, el: HTMLElement, hash?: string) => {
@@ -455,26 +473,46 @@ export default function App() {
 
   // Changing the day: the canvas you were on lifts toward you and fades (or, going forward in
   // time, falls back), and the day you picked comes up out of the haze in its place.
+  const reform = (back: boolean) => {
+    const w = worldEl.current, out = outgoing.current, inc = incoming.current;
+    if (!w || !out || !inc || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    out.getAnimations().forEach((a) => a.cancel());
+    out.replaceChildren(onScreen(w));
+    const ease = "cubic-bezier(0.3, 0.7, 0.1, 1)";
+    const o = out.animate([{ transform: "none", opacity: 1 }, { transform: `scale(${back ? 1.08 : 0.92})`, opacity: 0 }], { duration: 440, easing: ease, fill: "forwards" });
+    o.onfinish = () => { out.replaceChildren(); o.cancel(); };
+    inc.getAnimations().forEach((a) => a.cancel());
+    inc.animate([{ transform: `scale(${back ? 0.93 : 1.07})`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 520, easing: ease });
+  };
+  // One session (or everything again): the canvas re-forms the same way, going in as going back
+  // a day, and lands on the session's newest work at the top, its older work a scroll down.
+  // From a group's title in the timeline, the day holds and the camera lands on that group.
+  const showSession = (id: string | null, find?: string) => {
+    if (id === chat) { if (id) { refit.current = { to: "session", find }; setFindTick((n) => n + 1); } return; }
+    reform(!!id);
+    refit.current = id ? { to: "session", find } : { to: "all" };
+    touched.current = true;
+    setChat(id);
+    if (!find) setAsOf(null);
+  };
+  // In the timeline a group's title shows its session; elsewhere it opens the thread in Claude.
+  const titleClick = (g: Group) => {
+    if (!timeShown || !g.thread) return false;
+    // a topic gathers sends from many sessions: find this group again by one of its session's own
+    const mine = g.all.find((it) => (it.kind === "shot" && it.thread === g.thread) || (it.kind === "page" && it.page.thread === g.thread));
+    showSession(g.thread, mine ? (mine.kind === "shot" ? mine.set : mine.key) : g.id);
+    return true;
+  };
   const lastChange = useRef(0);
   const changeDay = (t: number | null) => {
     if (t != null) setTimeShown(true); // an earlier day is only ever seen in the time machine
     const today = endOfDay(new Date());
     const cur = asOf ?? today, next = t ?? today;
-    const w = worldEl.current, out = outgoing.current, inc = incoming.current;
     // Stepping quickly (a flick through the days), each day just takes over: a fade per step is
     // noise at that pace, and copying the outgoing day costs WebKit a frame each time.
     const quick = performance.now() - lastChange.current < 380;
     lastChange.current = performance.now();
-    if (cur !== next && w && out && inc && !quick && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const back = next < cur;
-      out.getAnimations().forEach((a) => a.cancel());
-      out.replaceChildren(onScreen(w));
-      const ease = "cubic-bezier(0.3, 0.7, 0.1, 1)";
-      const o = out.animate([{ transform: "none", opacity: 1 }, { transform: `scale(${back ? 1.08 : 0.92})`, opacity: 0 }], { duration: 440, easing: ease, fill: "forwards" });
-      o.onfinish = () => { out.replaceChildren(); o.cancel(); };
-      inc.getAnimations().forEach((a) => a.cancel());
-      inc.animate([{ transform: `scale(${back ? 0.93 : 1.07})`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 520, easing: ease });
-    }
+    if (cur !== next && !quick) reform(next < cur);
     // keep the project you're looking at under you as the canvas re-forms around it
     if (world && cur !== next) {
       const c = camRef.current;
@@ -492,7 +530,7 @@ export default function App() {
   useLayoutEffect(() => {
     const before = prevWorld.current;
     prevWorld.current = world;
-    if (!before || !world || before === world || anchor.current || !placed.current) return;
+    if (!before || !world || before === world || anchor.current || refit.current || !placed.current) return;
     const c = camRef.current;
     const p = local(innerWidth / 2, innerHeight / 2);
     const wx = (p.x - c.x) / c.z, wy = (p.y - c.y) / c.z;
@@ -520,16 +558,26 @@ export default function App() {
     if (!seen) focusCluster(n);
     updateView(camera.now); // the new day's screens near the view load now, not after a gesture
   }, [world]);
+  useLayoutEffect(() => {
+    const r = refit.current;
+    refit.current = null;
+    if (!r || !world) return;
+    const f = r.find;
+    const g = f && world.clusters.flatMap((c) => c.groups).find((g) => g.id === f || g.all.some((it) => (it.kind === "shot" ? it.set === f : it.key === f)));
+    if (g) { camera.jump(groupView(g)); setLit(g.id); }
+    else camera.jump(r.to === "session" && world.clusters[0] ? framed(world.clusters[0]) : overview());
+    updateView(camera.now);
+  }, [world, findTick]);
 
   // Days that had work, newest first: the stack behind the sheet.
   const activeDays = useMemo(() => {
-    if (!index) return [] as string[];
+    if (!shown) return [] as string[];
     const set = new Set<string>();
-    for (const t of index.threads) for (const d of Object.keys(t.days || {})) set.add(d);
-    for (const p of index.pages) for (const v of p.versions) set.add(dayKey(new Date(v.at)));
-    for (const st of index.sets || []) set.add(dayKey(new Date(st.at)));
+    for (const t of shown.threads) for (const d of Object.keys(t.days || {})) set.add(d);
+    for (const p of shown.pages) for (const v of p.versions) set.add(dayKey(new Date(v.at)));
+    for (const st of shown.sets || []) set.add(dayKey(new Date(st.at)));
     return [...set].sort().reverse();
-  }, [index]);
+  }, [shown]);
   // one sheet newer (+1) or older (-1): through the days that had work, then today
   const step = useRef<(dir: number) => void>(() => {});
   step.current = (dir) => {
@@ -545,8 +593,8 @@ export default function App() {
   const projectsOn = (d: Date) => {
     const k = dayKey(d);
     const keys = new Set<string>();
-    for (const t of index?.threads || []) if (t.days?.[k]) keys.add(t.project);
-    for (const st of index?.sets || []) if (dayKey(new Date(st.at)) === k) keys.add(st.project);
+    for (const t of shown?.threads || []) if (t.days?.[k]) keys.add(t.project);
+    for (const st of shown?.sets || []) if (dayKey(new Date(st.at)) === k) keys.add(st.project);
     return [...keys].slice(0, 4).map((x) => index!.projects[x] || x);
   };
 
@@ -612,11 +660,12 @@ export default function App() {
     wasLive.current = now;
     return m;
   }, [world, view]);
-  const latest = useRef({ focusCluster, openItem, suppressClick });
-  latest.current = { focusCluster, openItem, suppressClick };
+  const latest = useRef({ focusCluster, openItem, suppressClick, titleClick });
+  latest.current = { focusCluster, openItem, suppressClick, titleClick };
   const onHover = useCallback((key: string, on: boolean) => setFocus(on ? key : null), []);
   const onFocus = useCallback((c: Cluster) => { if (!latest.current.suppressClick()) latest.current.focusCluster(c); }, []);
   const onOpen = useCallback((g: Group, i: number, el: HTMLElement) => { if (!latest.current.suppressClick()) latest.current.openItem(g, i, el); }, []);
+  const onTitle = useCallback((g: Group) => latest.current.titleClick(g), []);
 
   const noted = useMemo(() => new Set((index?.comments ?? []).map((c) => c.page)), [index]);
   // Tab walks the canvas: the camera brings what has focus into view. The window itself never
@@ -722,10 +771,11 @@ export default function App() {
             openKey={openKey && c.groups.some((g) => g.items.some((it) => it.key === openKey)) ? openKey : undefined}
             noted={noted}
             fresh={fresh}
-            threadsAll={index!.threads}
+            threadsAll={shown!.threads}
             onHover={onHover}
             onFocus={onFocus}
             onOpen={onOpen}
+            onTitle={onTitle}
           />
         ))}
         {/* the project a drop would join */}
@@ -805,11 +855,13 @@ export default function App() {
           away={asOf == null ? null : new Date(asOf).toLocaleDateString([], { month: "short", day: "numeric" })}
           onTime={toggleTime}
           onSearch={() => setSearching(true)}
+          session={chat ? clean(index.threads.find((t) => t.id === chat)?.title || "") || "Session" : null}
+          onAll={() => showSession(null)}
         />
       )}
       {index && (
         <TimeRail
-          index={index}
+          index={shown!}
           asOf={asOf}
           open={timeShown && !open}
           onDay={changeDay}

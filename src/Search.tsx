@@ -1,10 +1,11 @@
 // Search: every topic, send and page by what it's called, what the thread said when it showed
 // it, and the thread's own name. Pick one and the canvas flies to it, back in time if needed.
+// A session itself turns up too, by its name: pick it and the canvas shows only what it made.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, when, type Index } from "./data";
 import { Glyph } from "./glyphs";
 
-export type Hit = { key: string; kind: "topic" | "set" | "page"; title: string; project: string; at: number; pic: string; text: string; find: string };
+export type Hit = { key: string; kind: "topic" | "set" | "page" | "chat"; title: string; project: string; at: number; pic: string; text: string; find: string };
 
 export function entries(index: Index): Hit[] {
   const threads = new Map(index.threads.map((t) => [t.id, t.title]));
@@ -35,6 +36,15 @@ export function entries(index: Index): Hit[] {
     const v = p.versions[p.versions.length - 1];
     out.push({ key: `page-${p.id}`, kind: "page", title: clean(p.title), project: p.project, at: v.at, pic: thumb(v.hash), text: `${p.title} ${threads.get(p.thread || "") || ""}`.toLowerCase(), find: `page-${p.id}` });
   }
+  // sessions that put something on the canvas, by when they last did
+  const last = new Map<string, number>();
+  const made = (id: string | null, at: number) => { if (id && at > (last.get(id) ?? 0)) last.set(id, at); };
+  for (const s of index.sets) made(s.thread, s.at);
+  for (const p of index.pages) for (const v of p.versions) made(p.thread, v.at);
+  for (const t of index.threads) {
+    const at = last.get(t.id);
+    if (at && t.title) out.push({ key: `chat-${t.id}`, kind: "chat", title: clean(t.title), project: t.project, at, pic: "", text: t.title.toLowerCase(), find: t.id });
+  }
   return out.sort((a, b) => b.at - a.at);
 }
 
@@ -50,10 +60,10 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
 
   const hits = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return all.filter((h) => h.kind !== "set").slice(0, 7);
+    if (!words.length) return all.filter((h) => h.kind !== "set" && h.kind !== "chat").slice(0, 7);
     const scored = all
       .filter((h) => words.every((w) => h.text.includes(w) || index.projects[h.project]?.toLowerCase().includes(w)))
-      .map((h) => ({ h, s: words.filter((w) => h.title.toLowerCase().includes(w)).length * 2 + (h.kind === "topic" ? 1 : 0) }));
+      .map((h) => ({ h, s: words.filter((w) => h.title.toLowerCase().includes(w)).length * 2 + (h.kind === "chat" ? 2 : h.kind === "topic" ? 1 : 0) }));
     scored.sort((a, b) => b.s - a.s || b.h.at - a.h.at);
     return scored.slice(0, 8).map((x) => x.h);
   }, [q, all]);
@@ -111,7 +121,8 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
                 className="flex h-14 w-full items-center gap-3.5 rounded-[14px] px-3 text-left"
                 style={{ background: i === sel ? "rgba(21,24,29,0.05)" : "transparent" }}
               >
-                <span className="h-9 w-14 shrink-0 overflow-hidden rounded-[6px] bg-[var(--wall-deep)] shadow-[inset_0_0_0_0.5px_rgba(21,24,29,0.12)]">
+                <span className="grid h-9 w-14 shrink-0 place-items-center overflow-hidden rounded-[6px] bg-[var(--wall-deep)] text-[var(--muted)] shadow-[inset_0_0_0_0.5px_rgba(21,24,29,0.12)]">
+                  {h.kind === "chat" && <Glyph name="comment" size={18} />}
                   {h.pic && <img src={h.pic} alt="" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} className="h-full w-full object-cover object-top" draggable={false} />}
                 </span>
                 <span className="min-w-0 flex-1">

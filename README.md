@@ -40,6 +40,8 @@ Step back to any day.
 
 ![Earlier days stacked behind the current one](docs/canvas-time.jpg)
 
+Search a session by name to see everything it made, newest first.
+
 ## Set it up
 
 You need a Mac, Node 20 or newer, and Claude Code.

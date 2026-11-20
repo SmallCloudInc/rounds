@@ -1,4 +1,5 @@
-// The dock along the bottom: the day the canvas shows, which opens the timeline, and search.
+// The dock along the bottom: the day the canvas shows, which opens the timeline, search, and
+// while the canvas shows one session, its name, which shows everything again.
 // Panning, zooming and pinning a note need no tool: the canvas and the viewer carry them.
 import { useRef, useState } from "react";
 import { Glyph } from "./glyphs";
@@ -29,9 +30,10 @@ function Key({ label, on, accent, onClick, children }: { label: string; on?: boo
 // edge to edge at 44 so the pressed circle stays concentric with the dock (6 in from its ends).
 const Rule = () => <span className="mx-2 h-5 w-px shrink-0" style={{ background: "rgba(21,24,29,0.1)" }} />;
 
-export function Dock({ hidden, timeOn, away, onTime, onSearch }: {
+export function Dock({ hidden, timeOn, away, onTime, onSearch, session, onAll }: {
   hidden: boolean; timeOn: boolean; away: string | null;
   onTime: (from: DOMRect) => void; onSearch: () => void;
+  session: string | null; onAll: () => void;
 }) {
   const timeBtn = useRef<HTMLButtonElement>(null);
   const dock = useRef<HTMLDivElement>(null);
@@ -84,6 +86,24 @@ export function Dock({ hidden, timeOn, away, onTime, onSearch }: {
       </button>
       <Rule />
       <Key label="Search (/)" onClick={onSearch}><Glyph name="search" /></Key>
+      {session && (
+        <>
+          <Rule />
+          <button
+            key={session}
+            onClick={onAll}
+            aria-label={`${session}, show all sessions`}
+            aria-keyshortcuts="Escape"
+            data-tip="Show all (Esc)"
+            className="flex h-11 min-w-0 max-w-[280px] items-center gap-2 rounded-full pl-3.5 pr-3 text-[var(--ink)] transition-transform duration-200 active:scale-95"
+            style={{ background: "var(--honey-wash)", animation: "wb-chip 260ms var(--ease-out) both" }}
+          >
+            <Glyph name="comment" size={16} className="shrink-0" />
+            <span className="min-w-0 truncate text-[13px] font-[560] tracking-[-0.01em]">{session}</span>
+            <Glyph name="close" size={12} className="shrink-0 text-[var(--muted)]" />
+          </button>
+        </>
+      )}
       {tip && (() => {
         const t = tipOf(tip.label);
         return (
@@ -96,7 +116,7 @@ export function Dock({ hidden, timeOn, away, onTime, onSearch }: {
           </span>
         );
       })()}
-      <style>{`@keyframes wb-tip { from { opacity: 0; transform: translate(-50%, 3px) } }`}</style>
+      <style>{`@keyframes wb-tip { from { opacity: 0; transform: translate(-50%, 3px) } } @keyframes wb-chip { from { opacity: 0; transform: scale(0.94) } }`}</style>
     </div>
   );
 }

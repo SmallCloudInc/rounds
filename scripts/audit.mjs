@@ -54,6 +54,33 @@ await p.keyboard.press("Escape"); await wait(300); check("search closes", !(awai
 await p.keyboard.press("Meta+k"); await wait(300); check("cmd-k opens search", !!(await p.locator("input[placeholder='Search']").count()));
 await p.keyboard.press("Escape"); await wait(300);
 
+// one session: found by its name, the canvas holds only its work, Esc shows everything again
+const busiest = await p.evaluate(async () => {
+  const i = await fetch("/api/index").then((r) => r.json()), n = {};
+  for (const s of i.sets) if (s.thread) n[s.thread] = (n[s.thread] || 0) + 1;
+  const t = i.threads.filter((t) => n[t.id] && t.title).sort((a, b) => n[b.id] - n[a.id])[0];
+  return t && { id: t.id, title: t.title };
+});
+if (busiest) {
+  await btn("Search (/)").click(); await wait(300);
+  await p.keyboard.type(busiest.title); await wait(200); await p.keyboard.press("Enter"); await wait(900);
+  const links = await p.evaluate(() => [...document.querySelectorAll("a[href*='epitaxy']")].map((a) => a.getAttribute("href")));
+  check("a session shows only its own work", links.length > 0 && links.every((h) => h.endsWith(busiest.id)), `${links.length} groups`);
+  check("the dock names the session", !!(await p.locator("button[data-tip='Show all (Esc)']").count()));
+  await p.keyboard.press("Escape"); await wait(900);
+  check("Esc shows every session again", !(await p.locator("button[data-tip='Show all (Esc)']").count()));
+  // a group's title opens its thread in Claude; in the timeline it shows that session instead
+  // (read at the window, after the canvas has had its say, then stopped: the audit opens nothing)
+  const kept = await p.evaluate(() => new Promise((res) => { addEventListener("click", (e) => { res(!e.defaultPrevented); e.preventDefault(); }, { once: true }); document.querySelector("a[href*='epitaxy']").click(); }));
+  check("a group's title opens its thread", kept);
+  await p.keyboard.press("t"); await wait(900);
+  const pick = await p.evaluate(() => { const a = document.querySelector("a[href*='epitaxy']"); a.click(); return a.getAttribute("href"); });
+  await wait(900);
+  const after = await p.evaluate(() => [...document.querySelectorAll("a[href*='epitaxy']")].map((a) => a.getAttribute("href")));
+  check("in the timeline a group's title shows its session", !!(await p.locator("button[data-tip='Show all (Esc)']").count()) && after.every((h) => h === pick), `${after.length} groups`);
+  await p.keyboard.press("Escape"); await wait(700); await p.keyboard.press("Escape"); await wait(900);
+}
+
 // the time machine: one switch
 const panelOpen = () => p.evaluate(() => { const el = document.querySelector("[role=slider][aria-orientation=vertical]")?.closest(".fixed"); return el ? getComputedStyle(el).opacity : "none"; });
 const away = () => p.evaluate(() => document.querySelector("button[data-tip='Timeline (T)']").dataset.away || "");

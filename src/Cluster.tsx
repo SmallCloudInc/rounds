@@ -60,10 +60,11 @@ function ActivityField({ threads, pages, days }: { threads: Thread[]; pages: Pag
   return <div className="relative" style={{ width: x - (PITCH - BLOCK), height: 3 * BLOCK + 6 }}>{cells}</div>;
 }
 
-export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen }: {
+export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, dimmed, openKey, noted, fresh, threadsAll, onFocus, onHover, onOpen, onTitle }: {
   c: Cluster; cap: number; far: boolean; near: boolean; live: string; dimmed: boolean; openKey?: string;
   noted: Set<string>; fresh: Set<string>; threadsAll: Thread[];
   onFocus: (c: Cluster) => void; onHover: (key: string, on: boolean) => void; onOpen: (g: Group, i: number, el: HTMLElement) => void;
+  onTitle: (g: Group) => boolean;
 }) {
   const lit = useMemo(() => new Set(live.split(" ")), [live]);
   const projectThreads = useMemo(() => threadsAll.filter((t) => t.project === c.key), [threadsAll, c.key]);
@@ -107,7 +108,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
 
       {c.groups.map((g) => (
         <Layer key={g.id}>
-          <GroupTitle g={g} far={far} colW={c.w} />
+          <GroupTitle g={g} far={far} colW={c.w} onTitle={onTitle} />
           {g.items.map((it, i) => (
             it.kind === "note"
               ? <Note key={it.key} it={it} far={far} />
@@ -145,9 +146,10 @@ function Layer({ children }: { children: React.ReactNode }) {
   return <div className="wb-layer">{children}</div>;
 }
 
-// A group's title: the thread's own caption, and when. It opens the thread it came from. Far out
+// A group's title: the thread's own caption, and when. It opens the thread it came from; in the
+// timeline it shows that session's work alone instead (⌘-click still opens the thread). Far out
 // it holds one size on screen, growing up into the air above its group, so it never has to hide.
-function GroupTitle({ g, far, colW }: { g: Group; far: boolean; colW: number }) {
+function GroupTitle({ g, far, colW, onTitle }: { g: Group; far: boolean; colW: number; onTitle: (g: Group) => boolean }) {
   const inner = (
     <>
       {/* past about 10% there's no air left above a group for it: it fades */}
@@ -158,7 +160,11 @@ function GroupTitle({ g, far, colW }: { g: Group; far: boolean; colW: number }) 
   );
   const style: React.CSSProperties = { left: g.x, top: g.y + 34, transform: "translateY(-100%)", width: far ? colW : Math.max(g.w, 640) };
   return g.thread ? (
-    <a href={threadLink(g.thread)} target="_blank" rel="noreferrer" className="group absolute flex items-baseline gap-3" style={style} onPointerDown={(e) => e.stopPropagation()}>
+    <a
+      href={threadLink(g.thread)} target="_blank" rel="noreferrer" className="group absolute flex items-baseline gap-3" style={style}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && onTitle(g)) e.preventDefault(); }}
+    >
       {inner}
     </a>
   ) : (
