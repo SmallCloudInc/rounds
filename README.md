@@ -42,6 +42,8 @@ Step back to any day.
 
 Search a session by name to see everything it made, newest first.
 
+Each session's files sit beside its screens, every change line by line, with any other session that changed the same file.
+
 Claude Code deletes terminal sessions after 30 days by default. What they made stays on your canvas.
 
 ## Set it up

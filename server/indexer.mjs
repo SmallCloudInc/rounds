@@ -70,6 +70,84 @@ function applyEdit(text, input) {
   return replace_all ? text.split(a).join(b) : text.replace(a, () => b);
 }
 
+// What one Edit, Write or MultiEdit changed, as Claude Code recorded it: the hunks with their
+// line numbers, or a new file's lines. A very long change keeps its first lines and says how many
+// more there were.
+const CUT = 600;
+const linesOf = (s) => { const a = s.split("\n"); if (a.length > 1 && a[a.length - 1] === "") a.pop(); return a; };
+function changeOf(name, input, r) {
+  r = r && typeof r === "object" ? r : null;
+  let hunks;
+  if (r?.type === "create" && typeof r.content === "string") hunks = [{ o: 0, n: 1, lines: linesOf(r.content).map((l) => `+${l}`) }];
+  else if (Array.isArray(r?.structuredPatch) && r.structuredPatch.length) hunks = r.structuredPatch.map((h) => ({ o: h.oldStart, n: h.newStart, lines: h.lines }));
+  else if (name === "Write" && typeof input.content === "string") hunks = [{ o: 0, n: 1, lines: linesOf(input.content).map((l) => `+${l}`) }];
+  else {
+    // no record of the result: the old and new text, with the lines they share as context
+    hunks = (name === "MultiEdit" ? input.edits || [] : [input]).filter((e) => typeof e?.old_string === "string" && typeof e?.new_string === "string").map((e) => {
+      const a = linesOf(e.old_string), b = linesOf(e.new_string);
+      let s = 0; while (s < a.length && s < b.length && a[s] === b[s]) s++;
+      let t = 0; while (t < a.length - s && t < b.length - s && a[a.length - 1 - t] === b[b.length - 1 - t]) t++;
+      return { o: 0, n: 0, lines: [...a.slice(0, s).map((l) => ` ${l}`), ...a.slice(s, a.length - t).map((l) => `-${l}`), ...b.slice(s, b.length - t).map((l) => `+${l}`), ...a.slice(a.length - t).map((l) => ` ${l}`)] };
+    });
+  }
+  let add = 0, del = 0;
+  for (const h of hunks) for (const l of h.lines) { if (l[0] === "+") add++; else if (l[0] === "-") del++; }
+  let left = CUT, cut = 0;
+  const kept = [];
+  for (const h of hunks) {
+    const take = h.lines.slice(0, Math.max(0, left));
+    cut += h.lines.length - take.length; left -= take.length;
+    if (take.length) kept.push({ ...h, lines: take });
+  }
+  return { add, del, hunks: kept, ...(cut ? { cut } : {}), ...(r?.type === "create" ? { created: true } : {}) };
+}
+
+// The repo a changed file belongs to and its path there. A worktree counts as the repo it was
+// made from, so two sessions in two worktrees changing one file change the same file; what a
+// worktree belonged to is remembered (repos.json) for when it has been removed. Scratch and temp
+// files, Claude's own folder and Library belong to no project.
+const REPOS = path.join(DATA, "repos.json");
+function repoFinder() {
+  let known = {};
+  try { known = JSON.parse(fs.readFileSync(REPOS, "utf8")); } catch {}
+  const memo = new Map();
+  let dirty = false;
+  const off = (f) => /^\/(private\/)?(tmp|var\/folders)\//.test(f) || f.includes("/scratchpad/") || f.startsWith(`${path.join(HOME, ".claude")}/`) || f.startsWith(`${path.join(HOME, "Library")}/`);
+  const at = (d) => {
+    if (memo.has(d)) return memo.get(d);
+    let out = null;
+    const wt = d.match(/^(.*)\/\.claude\/worktrees\/[^/]+$/);
+    if (wt) out = { root: d, repo: wt[1] };
+    else if (known[d]) out = { root: d, repo: known[d] };
+    else {
+      let st = null;
+      try { st = fs.statSync(path.join(d, ".git")); } catch {}
+      if (st?.isDirectory()) out = { root: d, repo: d };
+      else if (st?.isFile()) {
+        let gd = "";
+        try { gd = (fs.readFileSync(path.join(d, ".git"), "utf8").match(/gitdir:\s*(.+)/) || [])[1]?.trim() || ""; } catch {}
+        gd = gd && path.resolve(d, gd);
+        const i = gd.indexOf(`${path.sep}.git${path.sep}worktrees${path.sep}`);
+        out = { root: d, repo: i > 0 ? gd.slice(0, i) : d };
+      }
+      if (out && !known[d]) { known[d] = out.repo; dirty = true; }
+    }
+    memo.set(d, out);
+    return out;
+  };
+  return {
+    find(file) {
+      if (!path.isAbsolute(file) || off(file)) return null;
+      for (let d = path.dirname(file); d !== HOME && d !== path.dirname(d); d = path.dirname(d)) {
+        const r = at(d);
+        if (r) return { repo: r.repo, file: path.relative(r.root, file) };
+      }
+      return null;
+    },
+    save() { if (dirty) try { fs.writeFileSync(REPOS, JSON.stringify(known)); } catch {} },
+  };
+}
+
 const ARTIFACT_URL = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]+/;
 
 const DAY_RE = /"timestamp":"([0-9T:.\-]+Z)"/;
@@ -80,13 +158,14 @@ const CWD_RE = /"cwd":"((?:[^"\\]|\\.)*)"/;
 // A Rounds post made through the MCP server: the result names the post it made.
 const POST_RE = /\bpost ([a-f0-9]{16})\b/;
 
-async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {}, onPost = () => {}) {
+async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {}, onPost = () => {}, onEdit = () => {}) {
   const files = new Map(); // path -> reconstructed text, or null when unknown
   const posting = new Set(); // tool_use ids of Rounds posts
   const meta = { cwd: "", title: "", summary: "", at: 0 };
   let lastLine = "";
   const pending = new Map(); // tool_use id -> publish
   const sending = new Map(); // tool_use id -> a set of screens shown to him
+  const editing = new Map(); // tool_use id -> a file being changed
   const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
   for await (const line of rl) {
     // A prompt he typed: a user row that is not a tool result. Counted per day, cheaply.
@@ -101,7 +180,9 @@ async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {},
             const c = r.message?.content;
             const t = typeof c === "string" ? c : Array.isArray(c) ? c.find((x) => x.type === "text")?.text : "";
             // not a command (/compact) or a pasted block; a person's first words
-            if (t && !/^\s*[</]/.test(t)) meta.title = t.replace(/\s+/g, " ").trim().slice(0, 64);
+            // a file it was handed (@"~/Downloads/brief.md") is no part of the name
+            const words = t && t.replace(/@"[^"]*"|@[~/]\S*/g, "").replace(/\s+/g, " ").trim();
+            if (words && !/^\s*[</]/.test(t)) meta.title = words.slice(0, 64);
           } catch {}
         }
       }
@@ -117,6 +198,7 @@ async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {},
     for (const c of content) {
       if (c.type === "tool_use") {
         const i = c.input || {};
+        if ((c.name === "Edit" || c.name === "Write" || c.name === "MultiEdit") && typeof i.file_path === "string") editing.set(c.id, { name: c.name, input: i });
         if (c.name === "Write" && i.file_path && typeof i.content === "string") files.set(i.file_path, i.content);
         else if (c.name === "Edit" && i.file_path) files.set(i.file_path, applyEdit(files.get(i.file_path), i));
         else if (c.name === "MultiEdit" && i.file_path) {
@@ -128,22 +210,27 @@ async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {},
           const shots = i.files
             .filter((f) => typeof f === "string" && /\.(png|jpe?g|webp)$/i.test(f))
             .map((f) => (f.startsWith("~") ? path.join(HOME, f.slice(1)) : path.isAbsolute(f) ? f : path.join(cwd, f)));
-          if (shots.length) sending.set(c.id, { id: c.id, shots, caption: typeof i.caption === "string" ? i.caption : "", cwd, at: Date.parse(row.timestamp) || 0 });
+          if (shots.length) sending.set(c.id, { id: c.id, session: row.sessionId, shots, caption: typeof i.caption === "string" ? i.caption : "", cwd, at: Date.parse(row.timestamp) || 0 });
         } else if (/(rounds|workbench)_(post|change)$/.test(c.name || "")) {
           posting.add(c.id);
         } else if (c.name === "Artifact" && i.file_path && /\.html?$/i.test(i.file_path) && !i.asset && (!i.action || i.action === "publish")) {
           pending.set(c.id, {
+            session: row.sessionId,
             filePath: i.file_path,
             url: typeof i.url === "string" ? i.url : null,
             text: files.has(i.file_path) ? files.get(i.file_path) : null,
             at: Date.parse(row.timestamp) || 0,
           });
         }
+      } else if (c.type === "tool_result" && editing.has(c.tool_use_id)) {
+        const e = editing.get(c.tool_use_id);
+        editing.delete(c.tool_use_id);
+        if (!c.is_error) onEdit({ id: c.tool_use_id, session: row.sessionId, path: e.input.file_path, at: Date.parse(row.timestamp) || 0, ...changeOf(e.name, e.input, row.toolUseResult) });
       } else if (c.type === "tool_result" && posting.has(c.tool_use_id)) {
         posting.delete(c.tool_use_id);
         const body = typeof c.content === "string" ? c.content : JSON.stringify(c.content || "");
         const m = body.match(POST_RE);
-        if (m && !c.is_error) onPost(m[1]);
+        if (m && !c.is_error) onPost(m[1], row.sessionId);
       } else if (c.type === "tool_result" && sending.has(c.tool_use_id)) {
         const send = sending.get(c.tool_use_id);
         sending.delete(c.tool_use_id);
@@ -161,6 +248,28 @@ async function readTranscript(file, onPublish, onDay, onSend, onMeta = () => {},
   }
   { const m = lastLine.match(DAY_RE); if (m) meta.at = Date.parse(m[1]) || 0; }
   onMeta(meta);
+}
+
+// A subagent's transcript, for the files it changed and nothing else: only the rows that can
+// hold a change are read.
+async function readEdits(file, onEdit) {
+  const editing = new Map();
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!(editing.size && line.includes('"tool_result"')) && !/"name":"(Edit|Write|MultiEdit)"/.test(line)) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    const content = row.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const c of content) {
+      if (c.type === "tool_use" && (c.name === "Edit" || c.name === "Write" || c.name === "MultiEdit") && typeof c.input?.file_path === "string") editing.set(c.id, { name: c.name, input: c.input });
+      else if (c.type === "tool_result" && editing.has(c.tool_use_id)) {
+        const e = editing.get(c.tool_use_id);
+        editing.delete(c.tool_use_id);
+        if (!c.is_error) onEdit({ id: c.tool_use_id, session: row.sessionId, path: e.input.file_path, at: Date.parse(row.timestamp) || 0, ...changeOf(e.name, e.input, row.toolUseResult) });
+      }
+    }
+  }
 }
 
 // Width and height from the file's own header (PNG, JPEG), else from sips where there is one.
@@ -315,9 +424,82 @@ function keepSeen(index, P) {
     index.pages.push({ ...x, thread: t ? x.thread : null, versions, at: versions[versions.length - 1].at });
     kept++;
   }
+  // the files a session changed, when its transcript is gone, from the last index (the changes
+  // themselves stay in the store)
+  const changing = new Set(index.changed.map((c) => c.thread));
+  for (const c of prev.changed || []) {
+    const t = threads.get(c.thread);
+    if (!t || changing.has(c.thread) || P.isPrivate(c.repo, c.file, t.title, t.cwd)) continue;
+    if (!fs.existsSync(path.join(EDITS, `${c.thread}.json`))) continue;
+    index.changed.push(c);
+  }
   index.folders = [...new Set([...(index.folders || []), ...(prev.folders || [])])];
   index.projects = { ...(prev.projects || {}), ...Object.fromEntries(P.names) };
   return kept;
+}
+
+// Each session's changes to project files, every hunk, in the store (one file per session), and
+// in the index what the canvas needs to list them: per file, when each change came and how many
+// lines it added and removed. A session's store file keeps the changes it had: a transcript
+// rebuilt from fewer rows than before (a forked or cleaned-up session) loses none.
+const EDITS = path.join(STORE, "edits");
+const fileKey = (repo, file) => `${repo}\n${file}`;
+// What git ignores in a repo (scratch folders, builds, node_modules) is no project's file either.
+// Asked once per repo per build; a repo that's gone, or no git, ignores nothing.
+function ignored(lists) {
+  const out = new Set();
+  if (!which("git")) return out;
+  for (const [repo, files] of lists) {
+    if (!fs.existsSync(repo)) continue;
+    let text = "";
+    try { text = execFileSync("git", ["-C", repo, "check-ignore", "--stdin"], { input: [...files].join("\n"), encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }); }
+    catch (e) { text = e.stdout || ""; } // it exits 1 when nothing is ignored
+    for (const f of text.split("\n")) if (f) out.add(fileKey(repo, f));
+  }
+  return out;
+}
+function keepEdits(edits, threads, P) {
+  fs.mkdirSync(EDITS, { recursive: true });
+  const lists = new Map();
+  for (const e of edits.values()) lists.set(e.repo, (lists.get(e.repo) || new Set()).add(e.file));
+  const skip = ignored(lists);
+  const byThread = new Map();
+  for (const e of edits.values()) {
+    const t = threads.get(e.thread);
+    if (!t || skip.has(fileKey(e.repo, e.file)) || P.isPrivate(e.repo, e.file, t.title, t.cwd)) continue;
+    const m = byThread.get(e.thread) || new Map();
+    const k = fileKey(e.repo, e.file);
+    m.set(k, [...(m.get(k) || []), { at: e.at, add: e.add, del: e.del, hunks: e.hunks, ...(e.cut ? { cut: e.cut } : {}), ...(e.created ? { created: true } : {}) }]);
+    byThread.set(e.thread, m);
+  }
+  // a session whose changes were all read in an earlier build (a subagent's, say) keeps them
+  for (const f of fs.readdirSync(EDITS)) { const id = f.replace(/\.json$/, ""); if (threads.has(id) && !byThread.has(id)) byThread.set(id, new Map()); }
+  const out = [];
+  for (const [thread, m] of byThread) {
+    const f = path.join(EDITS, `${thread}.json`);
+    let was = {};
+    try { was = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+    const t = threads.get(thread);
+    for (const [k, list] of Object.entries(was)) {
+      const [repo, file] = k.split("\n");
+      if (P.isPrivate(repo, file, t.title, t.cwd)) continue;
+      const now = m.get(k) || [];
+      const have = new Set(now.map((e) => `${e.at} ${e.add} ${e.del}`));
+      m.set(k, [...now, ...list.filter((e) => !have.has(`${e.at} ${e.add} ${e.del}`))]);
+    }
+    const store = {};
+    for (const [k, list] of m) {
+      list.sort((a, b) => a.at - b.at);
+      store[k] = list;
+      const [repo, file] = k.split("\n");
+      out.push({ thread, repo, file, edits: list.map((e) => [e.at, e.add, e.del]) });
+    }
+    const text = JSON.stringify(store);
+    let same = false;
+    try { same = fs.statSync(f).size === Buffer.byteLength(text) && fs.readFileSync(f, "utf8") === text; } catch {}
+    if (!same) fs.writeFileSync(f, text);
+  }
+  return out;
 }
 
 export async function buildIndex({ log = () => {} } = {}) {
@@ -330,18 +512,50 @@ export async function buildIndex({ log = () => {} } = {}) {
   const pages = new Map(); // artifact id -> page
   const days = new Map(); // thread id -> { "YYYY-MM-DD": prompts }
 
-  // a subagent's transcript belongs to its parent session; it isn't a thread of its own
-  const transcripts = walk(TRANSCRIPTS, (n) => n.endsWith(".jsonl")).filter((f) => !f.includes(`${path.sep}subagents${path.sep}`));
+  // a subagent's transcript belongs to its parent session; it isn't a thread of its own, but the
+  // files it changed were changed for that session
+  const all = walk(TRANSCRIPTS, (n) => n.endsWith(".jsonl"));
+  const isSub = (f) => f.includes(`${path.sep}subagents${path.sep}`);
+  const transcripts = all.filter((f) => !isSub(f));
   log(`${threads.size} threads, ${transcripts.length} transcripts`);
+  const repos = repoFinder();
+  const edits = new Map(); // tool_use id -> a change to a project file, and the thread that made it
+  // A change belongs to the session that made it: a forked session's transcript carries its
+  // parent's rows, still marked with the parent's id, and a subagent's rows carry its session's.
+  const editsFor = (threadId) => (e) => {
+    if (edits.has(e.id) || (!e.add && !e.del)) return;
+    const where = repos.find(e.path);
+    const { session, ...rest } = e;
+    if (where) edits.set(e.id, { ...rest, ...where, thread: session ? byCli.get(session) || session : threadId });
+  };
+  // a subagent's transcript stops changing when it finishes: one read before is enough, its
+  // changes are in the store
+  const AGENTS = path.join(DATA, "agents-read.json");
+  let agents = {};
+  try { agents = JSON.parse(fs.readFileSync(AGENTS, "utf8")); } catch {}
+  const agentsNow = {};
+  for (const file of all.filter(isSub)) {
+    let st;
+    try { st = fs.statSync(file); } catch { continue; }
+    const stamp = `${st.mtimeMs}:${st.size}`;
+    agentsNow[file] = stamp;
+    if (agents[file] === stamp) continue;
+    const cli = path.basename(path.dirname(path.dirname(file)));
+    await readEdits(file, editsFor(byCli.get(cli) || cli));
+  }
   for (const file of transcripts) {
     const cli = path.basename(file, ".jsonl");
     // the desktop app's record when there is one; otherwise the Claude Code session itself
     const threadId = byCli.get(cli) || cli;
+    // what a row did belongs to the session it names: a forked session's transcript carries its
+    // parent's rows, marked with the parent's id
+    const own = (session) => (session ? byCli.get(session) || session : threadId);
     await readTranscript(file, (p) => {
       const id = p.url.split("/").pop();
-      const page = pages.get(id) || { id, url: p.url, filePath: p.filePath, thread: threadId, versions: [] };
+      const tid = own(p.session);
+      const page = pages.get(id) || { id, url: p.url, filePath: p.filePath, thread: tid, versions: [] };
       page.filePath = p.filePath;
-      if (threadId) page.thread = threadId;
+      if (tid) page.thread = tid;
       let text = p.text;
       page.versions.push({ at: p.at, text });
       pages.set(id, page);
@@ -351,12 +565,13 @@ export async function buildIndex({ log = () => {} } = {}) {
       d[day] = (d[day] || 0) + 1;
       days.set(threadId, d);
     }, (send) => {
-      // a forked thread carries its parent's history: count each send once, under the thread
-      // that has a name when one does
+      // each send once, under the session that made it (one with a name, when an older
+      // transcript doesn't say)
+      const tid = own(send.session);
       const dup = sets.find((x) => x.id === sha(send.id));
-      if (dup) { if (threads.has(threadId) && !threads.has(dup.thread)) dup.thread = threadId; return; }
-      const thread = threads.get(threadId);
-      if (byCli.has(cli) && !thread) return; // its desktop thread was kept off the canvas
+      if (dup) { if (threads.has(tid) && !threads.has(dup.thread)) dup.thread = tid; return; }
+      const thread = threads.get(tid);
+      if (byCli.has(send.session || cli) && !thread) return; // its desktop thread was kept off the canvas
       if (P.isPrivate(send.caption, send.cwd, send.shots.join(" "), thread?.title, thread?.cwd)) return;
       const shots = [];
       for (const f of send.shots) {
@@ -366,7 +581,7 @@ export async function buildIndex({ log = () => {} } = {}) {
       if (!shots.length) return;
       sets.push({
         id: sha(send.id),
-        thread: threadId,
+        thread: tid,
         // the thread decides first; a caption that says "mid-ride" shouldn't move a Shadowfax send
         // the thread decides; a caption that says "mid-ride" or "Shadowfax" doesn't move a send
         project: thread ? P.of([thread.title], thread.cwd) : P.of([send.caption, send.shots[0]], send.cwd),
@@ -376,15 +591,18 @@ export async function buildIndex({ log = () => {} } = {}) {
       });
     }, (meta) => {
       if (!threads.has(threadId)) cliMeta.set(threadId, meta);
-    }, (postId) => postThread.set(postId, threadId));
+    }, (postId, session) => postThread.set(postId, own(session)), editsFor(threadId));
   }
+  repos.save();
 
   // A post the tool hook tied to its session belongs to that session's thread (the desktop
   // thread it runs in, or the session itself), even before its transcript mentions it.
   for (const p of readDir(POSTS)) if (p.session && !postThread.has(p.id)) postThread.set(p.id, byCli.get(p.session) || p.session);
 
   // A Claude Code session with no desktop record becomes a thread when it made something.
-  const madeBy = new Set([...sets.map((s) => s.thread), ...[...pages.values()].map((p) => p.thread), ...postThread.values()]);
+  let stored = [];
+  try { stored = fs.readdirSync(EDITS).map((f) => f.replace(/\.json$/, "")); } catch {}
+  const madeBy = new Set([...sets.map((s) => s.thread), ...[...pages.values()].map((p) => p.thread), ...postThread.values(), ...[...edits.values()].map((e) => e.thread), ...stored]);
   for (const [id, m] of cliMeta) {
     if (threads.has(id) || !madeBy.has(id)) continue;
     const title = m.summary || m.title || path.basename(m.cwd || "") || "Session";
@@ -451,7 +669,9 @@ export async function buildIndex({ log = () => {} } = {}) {
   sets.sort((a, b) => a.at - b.at);
   // every folder a session ran in, made something or not: where a first launch looks for pushes
   const folders = [...new Set([...cliMeta.values(), ...threads.values()].map((m) => m.cwd).filter((c) => c && !P.isPrivate(c)))];
-  const index = { builtAt: Date.now(), projects: Object.fromEntries(P.names), threads: threadList, pages: out, sets, folders };
+  const changed = keepEdits(edits, threads, P);
+  try { fs.writeFileSync(AGENTS, JSON.stringify(agentsNow)); } catch {}
+  const index = { builtAt: Date.now(), projects: Object.fromEntries(P.names), threads: threadList, pages: out, sets, folders, changed };
   const kept = keepSeen(index, P);
   if (kept) log(`${kept} kept from earlier: their transcripts are gone`);
   filePostTopics(index); // a post that named its topic is filed under it now

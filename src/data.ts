@@ -20,11 +20,22 @@ export type ShotSet = {
 };
 /** What a project's screens were about, across sends and days; filed by Claude. */
 export type Topic = { id: string; title: string; sets: string[] };
-export type Index = { builtAt: number; projects: Record<string, string>; threads: Thread[]; pages: Page[]; sets: ShotSet[]; topics?: Record<string, Topic[]>; comments: Comment[]; previews?: boolean };
+/** A session's changes to one project file: when each came, and the lines it added and removed. */
+export type Changed = { thread: string; repo: string; file: string; edits: [number, number, number][] };
+/** One change as Claude Code recorded it: hunks of lines, each marked " ", "+" or "-", from line o
+ *  of the old file and line n of the new. A long change keeps its first lines; `cut` more followed. */
+export type Edit = { at: number; add: number; del: number; hunks: { o: number; n: number; lines: string[] }[]; cut?: number; created?: boolean };
+export type Index = { builtAt: number; projects: Record<string, string>; threads: Thread[]; pages: Page[]; sets: ShotSet[]; changed?: Changed[]; topics?: Record<string, Topic[]>; comments: Comment[]; previews?: boolean };
 
 export async function loadIndex(fresh = false): Promise<Index> {
   const r = await fetch(`/api/index${fresh ? "?fresh" : ""}`);
   if (!r.ok) throw new Error(`index: ${r.status}`);
+  return r.json();
+}
+
+export async function loadEdits(thread: string, repo: string, file: string): Promise<Edit[]> {
+  const r = await fetch(`/api/edits/${encodeURIComponent(thread)}?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`);
+  if (!r.ok) throw new Error(`edits: ${r.status}`);
   return r.json();
 }
 

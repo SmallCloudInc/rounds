@@ -300,6 +300,13 @@ export async function handle(req, res, next) {
             return json(res, { ...all, pages: [...idx.pages, ...added.pages], topics: topics.projects, comments: comments(idx), previews: !!previews() });
           }
           if (p === "/api/comments" && req.method === "GET") return json(res, comments());
+          // one session's changes to one file, in order: /api/edits/<thread>?repo=…&file=…
+          if (p.startsWith("/api/edits/")) {
+            const thread = decodeURIComponent(p.slice("/api/edits/".length));
+            if (!/^[\w-]+$/.test(thread)) return json(res, { error: "bad" }, 400);
+            const all = readJSON(path.join(STORE, "edits", `${thread}.json`), {});
+            return json(res, all[`${url.searchParams.get("repo")}\n${url.searchParams.get("file")}`] || []);
+          }
           // An empty canvas offers the last 30 days of pushes to main from the repos the sessions
           // worked in (server/history.mjs); bringing them in writes push records and indexes again.
           if (p === "/api/history") {

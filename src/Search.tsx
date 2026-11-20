@@ -36,11 +36,12 @@ export function entries(index: Index): Hit[] {
     const v = p.versions[p.versions.length - 1];
     out.push({ key: `page-${p.id}`, kind: "page", title: clean(p.title), project: p.project, at: v.at, pic: thumb(v.hash), text: `${p.title} ${threads.get(p.thread || "") || ""}`.toLowerCase(), find: `page-${p.id}` });
   }
-  // sessions that put something on the canvas, by when they last did
+  // sessions that made something (screens, pages, changes to files), by when they last did
   const last = new Map<string, number>();
   const made = (id: string | null, at: number) => { if (id && at > (last.get(id) ?? 0)) last.set(id, at); };
   for (const s of index.sets) made(s.thread, s.at);
   for (const p of index.pages) for (const v of p.versions) made(p.thread, v.at);
+  for (const c of index.changed || []) made(c.thread, c.edits[c.edits.length - 1][0]);
   for (const t of index.threads) {
     const at = last.get(t.id);
     if (at && t.title) out.push({ key: `chat-${t.id}`, kind: "chat", title: clean(t.title), project: t.project, at, pic: "", text: t.title.toLowerCase(), find: t.id });

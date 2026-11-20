@@ -4,7 +4,8 @@ import { clean, loadIndex, readSeen, markSeen, type Index, type Page } from "./d
 import { layout, type Cluster, type Group } from "./layout";
 import { useCamera, fit, type Cam } from "./camera";
 import { Stage, type Opening } from "./Stage";
-import { ClusterView } from "./Cluster";
+import { ClusterView, type FilesSheet } from "./Cluster";
+import { FileStage, type FileOpening } from "./FileStage";
 import { Ground } from "./Ground";
 import { dayKey, endOfDay } from "./days";
 import { Dock, type Tool } from "./Dock";
@@ -65,7 +66,8 @@ export default function App() {
   const [openPage_, setOpen] = useState<Opening | null>(null);
   const [shots, setShots] = useState<ShotOpening | null>(null);
   const [shotKey, setShotKey] = useState<string | null>(null);
-  const open = openPage_ || shots;
+  const [fileOpen, setFileOpen] = useState<FileOpening | null>(null);
+  const open = openPage_ || shots || fileOpen;
   // the canvas behind a screen or page blurs and dims with its flight in, and clears with its flight back
   const [leaving, setLeaving] = useState(false);
   const veiled = !!open && !leaving;
@@ -151,8 +153,9 @@ export default function App() {
     threads: index.threads.filter((t) => t.id === chat),
     sets: index.sets.filter((s) => s.thread === chat),
     pages: index.pages.filter((p) => p.thread === chat),
+    changed: index.changed?.filter((c) => c.thread === chat),
   }), [index, chat]);
-  const world = useMemo(() => (shown ? layout(shown, asOf, !!chat) : null), [shown, asOf, chat]);
+  const world = useMemo(() => (shown && index ? layout(shown, asOf, !!chat, index) : null), [shown, index, asOf, chat]);
   useLayoutEffect(() => {
     if (!SPLITS || !world) return;
     let area = 0;
@@ -661,12 +664,20 @@ export default function App() {
     wasLive.current = now;
     return m;
   }, [world, view]);
-  const latest = useRef({ focusCluster, openItem, suppressClick, titleClick });
-  latest.current = { focusCluster, openItem, suppressClick, titleClick };
+  // a file on a session's sheet opens what it changed there; the sheet grows into the page
+  const openFile = (sheet: FilesSheet, i: number, el: HTMLElement) => {
+    const r = (el.closest("[data-sheet]") || el).getBoundingClientRect();
+    setFocus(null);
+    setFileOpen({ sheet, i, from: { x: r.left, y: r.top, w: r.width, h: r.height } });
+  };
+  const latest = useRef({ focusCluster, openItem, suppressClick, titleClick, openFile, showSession });
+  latest.current = { focusCluster, openItem, suppressClick, titleClick, openFile, showSession };
   const onHover = useCallback((key: string, on: boolean) => setFocus(on ? key : null), []);
   const onFocus = useCallback((c: Cluster) => { if (!latest.current.suppressClick()) latest.current.focusCluster(c); }, []);
   const onOpen = useCallback((g: Group, i: number, el: HTMLElement) => { if (!latest.current.suppressClick()) latest.current.openItem(g, i, el); }, []);
   const onTitle = useCallback((g: Group) => latest.current.titleClick(g), []);
+  const onFile = useCallback((sheet: FilesSheet, i: number, el: HTMLElement) => { if (!latest.current.suppressClick()) latest.current.openFile(sheet, i, el); }, []);
+  const onSession = useCallback((id: string) => { if (!latest.current.suppressClick()) latest.current.showSession(id); }, []);
 
   const noted = useMemo(() => new Set((index?.comments ?? []).map((c) => c.page)), [index]);
   const gone = useMemo(() => new Set((index?.threads ?? []).filter((t) => t.gone).map((t) => t.id)), [index]);
@@ -778,6 +789,8 @@ export default function App() {
             onFocus={onFocus}
             onOpen={onOpen}
             onTitle={onTitle}
+            onFile={onFile}
+            onSession={onSession}
           />
         ))}
         {/* the project a drop would join */}
@@ -891,6 +904,16 @@ export default function App() {
           onStep={setShotKey}
           onClosing={() => setLeaving(true)}
           onClose={() => { setShots(null); setShotKey(null); setLeaving(false); }}
+        />
+      )}
+
+      {fileOpen && (
+        <FileStage
+          key={fileOpen.sheet.key}
+          opening={fileOpen}
+          onSession={(id) => showSession(id)}
+          onClosing={() => setLeaving(true)}
+          onClose={() => { setFileOpen(null); setLeaving(false); }}
         />
       )}
 

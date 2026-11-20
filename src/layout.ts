@@ -24,9 +24,14 @@ const JOIN = 3 * 3600e3; // a page joins a sitting this close to its publish
 const GROUPS_PER_PROJECT = 10;
 const MAX_ROWS = 2; // past this a group folds; the rest is a step away on the stage
 
+/** A file a session changed: the lines it added and removed, and the other sessions that changed
+ *  the same file around the same time, newest first. */
+export type FileRow = { repo: string; file: string; add: number; del: number; last: number; also: { id: string; title: string }[] };
+
 export type Item =
   | { kind: "shot"; key: string; shot: Shot; before?: Shot; set: string; thread: string | null; w: number; h: number }
   | { kind: "note"; key: string; title: string; commits: Commit[]; files: string[]; at: number; w: number; h: number }
+  | { kind: "files"; key: string; thread: string; title: string; rows: FileRow[]; w: number; h: number }
   | { kind: "page"; key: string; page: Page; hash: string; layers: number; w: number; h: number };
 export type PlacedItem = Item & { x: number; y: number; dw: number; dh: number; more?: number };
 export type Group = {
@@ -56,16 +61,77 @@ function titleFrom(caption: string, fallback: string) {
   return t.length > 72 ? `${t.slice(0, 70).replace(/\s+\S*$/, "")}…` : t;
 }
 
+const widthOf = (it: Item) => Math.round(Math.min(ROW_H * (it.w / it.h), MAX_ROW_W));
+// A group's screens in rows, folding past the last; then its files sheets. `reserve` is the room
+// the last row keeps for the sheets.
+function lay(rest: Item[], sheets: Item[], reserve: number) {
+  const LAST = MAX_ROWS - 1;
+  const items: PlacedItem[] = [];
+  let x = 0, y = TITLE_H, w = 0, row = 0, k = 0;
+  const put = (it: Item, dw: number) => { items.push({ ...it, x, y, dw, dh: ROW_H }); x += dw + ITEM_GAP; w = Math.max(w, x - ITEM_GAP); };
+  const room = () => (row === LAST ? MAX_ROW_W - reserve : MAX_ROW_W);
+  for (; k < rest.length; k++) {
+    const dw = widthOf(rest[k]);
+    if (x > 0 && x + dw > room()) {
+      if (row >= LAST) break;
+      row++; x = 0; y += ROW_H + ITEM_GAP;
+    }
+    if (x === 0 && reserve && row === LAST && dw > room()) break;
+    put(rest[k], dw);
+  }
+  const folded = rest.length - k;
+  if (folded && items.length) items[items.length - 1].more = folded;
+  for (const it of sheets) {
+    const dw = widthOf(it);
+    if (x > 0 && x + dw > MAX_ROW_W) { row++; x = 0; y += ROW_H + ITEM_GAP; }
+    put(it, dw);
+  }
+  return { items, w, h: y + ROW_H, rows: row + 1, folded };
+}
+
+// The files each session changed, as of the day shown, newest first; and for each file the other
+// sessions (from `every`, the whole canvas) that changed it within a day of this one.
+const NEAR = 864e5;
+function filesBy(index: Index, every: Index, end: number) {
+  const named = new Map(every.threads.map((t) => [t.id, t]));
+  const others = new Map<string, { thread: string; at: number }[]>();
+  for (const c of every.changed || []) {
+    const k = `${c.repo}\n${c.file}`;
+    const l = others.get(k) || [];
+    for (const [at] of c.edits) if (at <= end) l.push({ thread: c.thread, at });
+    others.set(k, l);
+  }
+  const out = new Map<string, FileRow[]>();
+  for (const c of index.changed || []) {
+    const mine = c.edits.filter(([at]) => at <= end);
+    if (!mine.length) continue;
+    const first = mine[0][0], last = mine[mine.length - 1][0];
+    const also = new Map<string, number>();
+    for (const o of others.get(`${c.repo}\n${c.file}`) || []) {
+      if (o.thread !== c.thread && named.has(o.thread) && o.at >= first - NEAR && o.at <= last + NEAR) also.set(o.thread, Math.max(also.get(o.thread) || 0, o.at));
+    }
+    const row: FileRow = {
+      repo: c.repo, file: c.file, last,
+      add: mine.reduce((n, e) => n + e[1], 0), del: mine.reduce((n, e) => n + e[2], 0),
+      also: [...also].sort((a, b) => b[1] - a[1]).map(([id]) => ({ id, title: clean(named.get(id)!.title) })),
+    };
+    out.set(c.thread, [...(out.get(c.thread) || []), row]);
+  }
+  for (const rows of out.values()) rows.sort((a, b) => b.last - a.last);
+  return out;
+}
+
 // With `all`, nothing ages out and no project stops at ten groups: one session's whole history.
-export function layout(index: Index, asOf: number | null = null, all = false): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
+// `every` is the whole canvas when `index` is one session's part of it: who else changed a file.
+export function layout(index: Index, asOf: number | null = null, all = false, every: Index = index): { clusters: Cluster[]; w: number; h: number; nameCap: number } {
   const end = asOf ?? Date.now();
   const start = all ? -Infinity : end - WINDOW;
   const threadById = new Map(index.threads.map((t) => [t.id, t]));
+  // A topic gathers every send filed under it, across threads and days; a send no topic
+  // holds yet stays its own sitting, merged with sends from its thread close in time.
+  type G = { id: string; thread: string | null; first: number; last: number; caption: string; topic: boolean; sets: ShotSet[]; items: Item[] };
 
-  const raw = Object.keys(index.projects).map((key) => {
-    // A topic gathers every send filed under it, across threads and days; a send no topic
-    // holds yet stays its own sitting, merged with sends from its thread close in time.
-    type G = { id: string; thread: string | null; first: number; last: number; caption: string; topic: boolean; sets: ShotSet[]; items: Item[] };
+  const proj = Object.keys(index.projects).map((key) => {
     const topicOf = new Map<string, Topic>();
     for (const t of index.topics?.[key] || []) for (const id of t.sets) topicOf.set(id, t);
     const gs: G[] = [];
@@ -111,7 +177,32 @@ export function layout(index: Index, asOf: number | null = null, all = false): {
       else gs.push({ id: `p-${page.id}`, thread: page.thread, first: v.at, last: v.at, caption: page.topic || page.title, topic: true, sets: [], items: [item] });
     }
     gs.sort((a, b) => b.last - a.last);
-    const groups = all ? gs : gs.slice(0, GROUPS_PER_PROJECT);
+    return { key, groups: all ? gs : gs.slice(0, GROUPS_PER_PROJECT) };
+  });
+
+  // Each session's files go on a sheet at the end of its newest group: the screens are what it
+  // made, the sheet what it changed to make them. Seen on its own, a session that only changed
+  // files has a group of its own for them.
+  const files = filesBy(index, every, end);
+  const home = new Map<string, G>();
+  for (const p of proj) for (const g of p.groups) {
+    const by = new Set([g.thread, ...g.sets.map((s) => s.thread), ...g.items.map((it) => (it.kind === "page" ? it.page.thread : null))]);
+    for (const t of by) { const h = t && files.has(t) ? home.get(t) : null; if (t && files.has(t) && (!h || h.last < g.last)) home.set(t, g); }
+  }
+  for (const [t, rows] of files) {
+    const th = threadById.get(t);
+    let g = home.get(t);
+    if (!g) {
+      const p = all && th ? proj.find((p) => p.key === th.project) : null;
+      if (!p) continue;
+      g = { id: `f-${t}`, thread: t, first: rows[0].last, last: rows[0].last, caption: th!.title, topic: true, sets: [], items: [] };
+      p.groups.push(g);
+      p.groups.sort((a, b) => b.last - a.last);
+    }
+    g.items.push({ kind: "files", key: `${g.id}-files-${t}`, thread: t, title: clean(th?.title || ""), rows, w: 520, h: 325 });
+  }
+
+  const raw = proj.map(({ key, groups }) => {
     const threads = index.threads
       .filter((t) => t.project === key && !t.archived && !t.gone && t.at <= end + 864e5 && (all || end - t.at < WINDOW))
       .filter((t) => !groups.some((g) => g.thread === t.id))
@@ -129,20 +220,12 @@ export function layout(index: Index, asOf: number | null = null, all = false): {
   for (const c of raw) {
     // each group's screens laid out in rows of even height, wrapping at the column's width
     const laid = c.groups.map((g) => {
-      const items: PlacedItem[] = [];
-      let x = 0, y = TITLE_H, w = 0, row = 0;
-      for (const it of g.items) {
-        const dh = ROW_H;
-        const dw = Math.round(Math.min(ROW_H * (it.w / it.h), MAX_ROW_W));
-        if (x > 0 && x + dw > MAX_ROW_W) {
-          if (++row >= MAX_ROWS) { items[items.length - 1].more = g.items.length - items.length; break; }
-          x = 0; y += ROW_H + ITEM_GAP;
-        }
-        items.push({ ...it, x, y, dw, dh });
-        x += dw + ITEM_GAP;
-        w = Math.max(w, x - ITEM_GAP);
-      }
-      return { g, items, w, h: y + ROW_H };
+      const sheets = g.items.filter((it) => it.kind === "files");
+      const rest = g.items.filter((it) => it.kind !== "files");
+      let r = lay(rest, sheets, 0);
+      // when its screens fold, the files sheet still holds its place at the end of the last row
+      if (sheets.length && (r.folded || r.rows > MAX_ROWS)) r = lay(rest, sheets, sheets.reduce((n, it) => n + widthOf(it) + ITEM_GAP, 0));
+      return { g, items: r.items, w: r.w, h: r.h };
     });
     const colW = Math.max(MIN_COL_W, ...laid.map((l) => l.w));
     if (cx > 0 && cx + colW > WORLD_ROW_W) { cx = 0; cy += rowH + ROW_GAP; rowH = 0; }

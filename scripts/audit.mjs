@@ -81,6 +81,24 @@ if (busiest) {
   await p.keyboard.press("Escape"); await wait(700); await p.keyboard.press("Escape"); await wait(900);
 }
 
+// a session's files: a sheet lists them, a file opens what the session changed in it, a name on
+// the sheet shows that session
+const sheet = await p.evaluate(() => { const s = document.querySelector("[data-sheet]"); return s && s.querySelectorAll("button[aria-label]").length; });
+check("a session's files are on a sheet", !!sheet, `${sheet || 0} files`);
+if (sheet) {
+  await p.evaluate(() => document.querySelector("[data-sheet] button[aria-label]").click()); await wait(1600);
+  const opened = await p.evaluate(() => { const d = document.querySelector("[role=dialog]"); return d ? d.querySelectorAll("section").length : -1; });
+  check("a file opens its changes", opened > 0, `${opened} changes`);
+  await p.keyboard.press("Escape"); await wait(900);
+  check("Esc closes the file", !(await p.locator("[role=dialog]").count()));
+  const named = await p.evaluate(() => { const b = document.querySelector("[data-sheet] button[aria-label^='Also changed by']"); if (!b) return null; b.click(); return b.textContent; });
+  if (named) {
+    await wait(1400);
+    check("a name on a sheet shows that session", (await p.evaluate(() => document.querySelector("button[data-tip='Show all (Esc)']")?.textContent || "")).includes(named), named);
+    await p.keyboard.press("Escape"); await wait(900);
+  }
+}
+
 // the time machine: one switch
 const panelOpen = () => p.evaluate(() => { const el = document.querySelector("[role=slider][aria-orientation=vertical]")?.closest(".fixed"); return el ? getComputedStyle(el).opacity : "none"; });
 const away = () => p.evaluate(() => document.querySelector("button[data-tip='Timeline (T)']").dataset.away || "");
