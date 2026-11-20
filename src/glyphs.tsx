@@ -13,7 +13,7 @@ const EYE = "M1.75 12C4.5 8.25 7.75 5.5 12 5.5C16.25 5.5 19.5 8.25 22.25 12C19.5
 const PUPIL = "M15.6 12A3.6 3.6 0 1 1 8.4 12A3.6 3.6 0 1 1 15.6 12Z";
 
 type Name = "comment" | "close" | "send" | "done" | "open" | "back" | "next" | "eye"
-  | "move" | "hand" | "add" | "minus" | "search" | "fit" | "time" | "photos";
+  | "move" | "hand" | "add" | "minus" | "search" | "fit" | "time" | "photos" | "copy";
 
 // From the Wren line set (LineGlyphSet.swift), point for point: its search lens, its errand
 // pointer, its clock, its Scan corners, its Photo.
@@ -41,6 +41,8 @@ const LINES: Record<Name, { d: string; face?: string; solid?: string }> = {
   fit: { d: "M2.5 7.5V6.3A3.8 3.8 0 0 1 6.3 2.5H7.5M21.5 7.5V6.3A3.8 3.8 0 0 0 17.7 2.5H16.5M2.5 16.5V17.7A3.8 3.8 0 0 0 6.3 21.5H7.5M21.5 16.5V17.7A3.8 3.8 0 0 1 17.7 21.5H16.5" },
   time: { d: `${DIAL}M12 5.5V12H16.5`, face: DIAL },
   // the set's Photo (photo.on.rectangle): a frame at a fifth of its short side, the hills, the sun
+  // the kit's Copy: a sheet behind a sheet, the back one's lines stopping short of the front
+  copy: { d: "M5.8 16.8H5.2A2.7 2.7 0 0 1 2.5 14.1V4.4A2.7 2.7 0 0 1 5.2 1.7H13.3A2.7 2.7 0 0 1 16 4.4V5M10.7 7.2H18.8A2.7 2.7 0 0 1 21.5 9.9V19.6A2.7 2.7 0 0 1 18.8 22.3H10.7A2.7 2.7 0 0 1 8 19.6V9.9A2.7 2.7 0 0 1 10.7 7.2Z" },
   photos: { d: "M1.75 7.35A3.1 3.1 0 0 1 4.85 4.25H19.15A3.1 3.1 0 0 1 22.25 7.35V16.65A3.1 3.1 0 0 1 19.15 19.75H4.85A3.1 3.1 0 0 1 1.75 16.65ZM1.75 16.5L7.5 11L13.25 16.75L15.75 14.25L20 18.5", solid: disc(16, 9, 1.75) },
 };
 

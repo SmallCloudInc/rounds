@@ -714,7 +714,7 @@ export default function App() {
         style={{ background: "var(--wall)", opacity: open ? 0.42 : 0, transition: "opacity 420ms var(--ease-out)" }}
       />
 
-      {index && !index.sets.length && !index.pages.length && <Empty />}
+      {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
       {index && (
         <Dock
           tool={tool}

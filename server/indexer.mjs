@@ -381,7 +381,9 @@ export async function buildIndex({ log = () => {} } = {}) {
 
   const threadList = [...threads.values()].map((t) => ({ ...t, project: P.of([t.title], t.cwd), days: days.get(t.id) || {} }));
   sets.sort((a, b) => a.at - b.at);
-  const index = { builtAt: Date.now(), projects: Object.fromEntries(P.names), threads: threadList, pages: out, sets };
+  // every folder a session ran in, made something or not: where a first launch looks for pushes
+  const folders = [...new Set([...cliMeta.values(), ...threads.values()].map((m) => m.cwd).filter((c) => c && !P.isPrivate(c)))];
+  const index = { builtAt: Date.now(), projects: Object.fromEntries(P.names), threads: threadList, pages: out, sets, folders };
   filePostTopics(index); // a post that named its topic is filed under it now
   fs.writeFileSync(path.join(DATA, "index.json"), JSON.stringify(index));
   log(`${out.length} pages, ${out.reduce((n, p) => n + p.versions.length, 0)} versions, ${sets.length} sets, ${sets.reduce((n, s) => n + s.shots.length, 0)} screens`);

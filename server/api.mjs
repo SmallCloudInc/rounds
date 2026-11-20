@@ -8,6 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { buildIndex, keepImage, hasSips, which, DATA, STORE, IMG } from "./indexer.mjs";
+import { pastPushes, importPushes } from "./history.mjs";
 import { applyMoves, fileTopics, filePostTopics, loadTopics } from "./topics.mjs";
 import { POSTS, projects, loadConfig } from "./config.mjs";
 
@@ -224,6 +225,7 @@ function withLivePosts(idx) {
 }
 
 let indexing = null;
+let history = null; // what the first launch can bring in, found once
 let filing = null;
 function reindex() {
   indexing ??= buildIndex().then((idx) => { fileInBackground(idx); warm(); return idx; }).finally(() => (indexing = null));
@@ -296,6 +298,19 @@ export async function handle(req, res, next) {
             return json(res, { ...all, pages: [...idx.pages, ...added.pages], topics: topics.projects, comments: comments(idx), previews: !!previews() });
           }
           if (p === "/api/comments" && req.method === "GET") return json(res, comments());
+          // An empty canvas offers the last 30 days of pushes to main from the repos the sessions
+          // worked in (server/history.mjs); bringing them in writes push records and indexes again.
+          if (p === "/api/history") {
+            const idx = readJSON(path.join(DATA, "index.json"), null) || (await reindex());
+            const P = projects();
+            history ??= pastPushes([...(idx.folders || []), ...(idx.threads || []).map((t) => t.cwd)]).filter((x) => !P.isPrivate(x.repo));
+            if (req.method === "GET") return json(res, { pushes: history.length, projects: new Set(history.map((x) => x.repo)).size });
+            if (req.method !== "POST") return json(res, { error: "bad" }, 405);
+            const added = importPushes(history, (x) => !P.isPrivate(x.repo, ...x.commits.map((c) => c.subject)));
+            history = null;
+            await reindex();
+            return json(res, { added });
+          }
           // cheap to ask every few seconds: when something was last posted or noted
           if (p === "/api/stamp") {
             const t = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } };
