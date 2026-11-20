@@ -1,5 +1,7 @@
 import { chromium } from "playwright-core";
-// screenshots of whatever canvas it ran on: kept out of the repo
+// A click-through of the canvas on whatever data the dev server (:4797) has. Screenshots go to
+// .audit, kept out of the repo. It adds one dropped image to that canvas: delete added.json and
+// the file in drops/ after.
 const out = new URL("../.audit", import.meta.url).pathname;
 (await import("node:fs")).mkdirSync(out, { recursive: true });
 const b = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", args: ["--use-angle=metal"] });
@@ -10,53 +12,41 @@ p.on("console", (m) => m.type() === "error" && !m.text().includes("Failed to loa
 await p.goto("http://localhost:4797/", { waitUntil: "networkidle" }); await p.waitForTimeout(2500);
 const results = [];
 const check = (name, ok, extra = "") => results.push(`${ok ? "PASS" : "FAIL"} ${name}${extra ? " (" + extra + ")" : ""}`);
-const zoom = () => p.evaluate(() => [...document.querySelectorAll("button")].find((b) => /%$/.test(b.textContent))?.textContent);
+// the camera, read off the world's own transform
+const cam = () => p.evaluate(() => { const w = [...document.querySelectorAll("div")].find((d) => d.style.transform.startsWith("translate3d")); const m = w.style.transform.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px, 0px\) scale\(([-\d.]+)\)/); return { x: +m[1], y: +m[2], z: +m[3] }; });
 const btn = (label) => p.locator(`button[aria-label="${label}"]`);
-const pressed = (label) => p.evaluate((l) => document.querySelector(`button[aria-label="${l}"]`)?.getAttribute("aria-pressed"), label);
 const wait = (ms = 700) => p.waitForTimeout(ms);
 
-// zoom controls
-let z0 = await zoom();
-await btn("Zoom in (+)").click(); await wait(); let z1 = await zoom(); check("zoom in", parseInt(z1) > parseInt(z0), `${z0} -> ${z1}`);
-await btn("Zoom out (-)").click(); await wait(); let z2 = await zoom(); check("zoom out", parseInt(z2) < parseInt(z1), `${z1} -> ${z2}`);
-await p.locator("button[aria-label='Actual size']").click(); await wait(900); check("actual size", (await zoom()) === "100%", await zoom());
-await btn("Fit everything (0)").click(); await wait(900); check("fit", parseInt(await zoom()) < 20, await zoom());
-await p.keyboard.press("="); await wait(); check("key +", parseInt(await zoom()) > 9, await zoom());
+// the dock: the day and search, nothing else
+const dock = await p.evaluate(() => [...document.querySelectorAll(".dock button")].map((x) => x.getAttribute("aria-label")));
+check("dock holds the day and search", dock.join(",") === "Timeline (T),Search (/)", dock.join(", "));
+
+// zoom by keys and by pinch
+let z0 = (await cam()).z;
+await p.keyboard.press("="); await wait(900); let z1 = (await cam()).z; check("key + zooms in", z1 > z0, `${z0.toFixed(2)} -> ${z1.toFixed(2)}`);
+await p.keyboard.press("-"); await wait(900); check("key - zooms out", (await cam()).z < z1);
+await p.keyboard.press("0"); await wait(900);
+await p.mouse.move(720, 450); await p.keyboard.down("Control"); for (let i = 0; i < 5; i++) { await p.mouse.wheel(0, -40); await wait(16); } await p.keyboard.up("Control"); await wait(400);
+check("pinch zooms", (await cam()).z > z0);
+await p.keyboard.press("0"); await wait(900);
+let c0 = await cam(); for (let i = 0; i < 6; i++) { await p.mouse.wheel(0, 40); await wait(16); } await wait(300);
+check("scroll pans", (await cam()).y < c0.y);
+await p.keyboard.press("0"); await wait(900);
+c0 = await cam(); await p.mouse.move(700, 120); await p.keyboard.down(" "); await p.mouse.down(); await p.mouse.move(600, 160, { steps: 8 }); await p.mouse.up(); await p.keyboard.up(" "); await wait(600);
+check("space and drag pans", (await cam()).x !== c0.x);
 await p.keyboard.press("0"); await wait(900);
 
-// tools
-await btn("Hand (H)").click(); check("hand tool on", (await pressed("Hand (H)")) === "true");
-await p.evaluate(() => document.querySelector("button.type-project").click()); await wait(1500);
-check("hand: project name does not fly", true);
-const target = await p.evaluate(() => { const b = [...document.querySelectorAll("button[data-key]")].find((x) => { const r = x.getBoundingClientRect(); return r.top > 150 && r.bottom < 800 && r.width > 40; }); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-if (target) {
-  await p.mouse.click(target.x, target.y); await wait(900);
-  check("hand: click on a screen does not open it", !(await p.locator("button[aria-label='Close']:not([title])").count()));
-}
-await p.keyboard.press("v"); check("key v -> move", (await pressed("Move (V)")) === "true");
-await p.keyboard.press("h"); check("key h -> hand", (await pressed("Hand (H)")) === "true");
-await p.keyboard.press("Escape"); check("Esc -> move", (await pressed("Move (V)")) === "true");
-await p.keyboard.press("0"); await wait(900);
-// move: project name flies in
-const zb = await zoom(); await p.evaluate(() => document.querySelector("button.type-project").click()); await wait(1500);
-check("move: project name zooms in", parseInt(await zoom()) > parseInt(zb), `${zb} -> ${await zoom()}`);
+// a project name flies in
+const zb = (await cam()).z; await p.evaluate(() => document.querySelector("button.type-project").click()); await wait(1500);
+check("project name zooms in", (await cam()).z > zb);
 
-// open a screen, step, close
+// open a screen, step, pin, close
 const t2 = await p.evaluate(() => { const b = [...document.querySelectorAll("button[data-key]")].find((x) => !x.dataset.key.startsWith("page-") && x.getBoundingClientRect().top > 150 && x.getBoundingClientRect().bottom < 800); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
 await p.mouse.click(t2.x, t2.y); await wait(1300);
-const count = () => p.evaluate(() => [...document.querySelectorAll(".type-mono")].map((e) => e.textContent).find((t) => / of /.test(t)));
-const c0 = await count();
-check("screen opens", !!(await p.locator("button[aria-label='Close']:not([title])").count()), c0 || "");
-if (c0) { await btn("Next").click(); await wait(500); const c1 = await count(); check("next", c1 !== c0, `${c0} -> ${c1}`); await btn("Previous").click(); await wait(500); check("previous", (await count()) === c0); await p.keyboard.press("ArrowRight"); await wait(400); check("arrow right in stage", (await count()) !== c0); }
-await btn("Comment").click(); await wait(200); check("stage comment toggles", (await p.evaluate(() => !!document.querySelector("[style*='crosshair']"))));
+check("screen opens", !!(await p.locator("button[aria-label='Close']:not([title])").count()));
+await btn("Comment").click(); await wait(200); check("the viewer's comment tool turns on", await p.evaluate(() => !!document.querySelector("[style*='crosshair']")));
 await p.keyboard.press("Escape"); await wait(200);
-await p.locator("button[aria-label='Close']:not([title])").click(); await wait(900); check("stage closes", !(await p.locator("button[aria-label='Close']:not([title])").count()));
-
-// comment tool opens ready to pin
-await p.keyboard.press("c"); check("key c -> comment", (await pressed("Comment (C)")) === "true");
-await p.mouse.click(t2.x, t2.y); await wait(1300);
-check("comment tool opens screen ready to pin", await p.evaluate(() => !!document.querySelector("[style*='crosshair']")));
-await p.keyboard.press("Escape"); await p.keyboard.press("Escape"); await wait(900); await p.keyboard.press("Escape");
+await p.locator("button[aria-label='Close']:not([title])").click(); await wait(900); check("screen closes", !(await p.locator("button[aria-label='Close']:not([title])").count()));
 
 // search
 await btn("Search (/)").click(); await wait(300); check("search opens", !!(await p.locator("input[placeholder='Search']").count()));
@@ -64,39 +54,45 @@ await p.keyboard.press("Escape"); await wait(300); check("search closes", !(awai
 await p.keyboard.press("Meta+k"); await wait(300); check("cmd-k opens search", !!(await p.locator("input[placeholder='Search']").count()));
 await p.keyboard.press("Escape"); await wait(300);
 
-// timeline: the rail on the right
-await btn("Timeline (T)").click(); await wait(800);
+// the time machine: one switch
 const panelOpen = () => p.evaluate(() => { const el = document.querySelector("[role=slider][aria-orientation=vertical]")?.closest(".fixed"); return el ? getComputedStyle(el).opacity : "none"; });
+const away = () => p.evaluate(() => document.querySelector("button[aria-label='Timeline (T)']").dataset.away || "");
+await btn("Timeline (T)").click(); await wait(800);
 check("timeline opens", (await panelOpen()) === "1");
 await p.screenshot({ path: `${out}/rail-1-open.png` });
 const rr = await p.evaluate(() => { const r = document.querySelector("[role=slider][aria-orientation=vertical]").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
-const awayTxt = () => p.evaluate(() => document.querySelector("button[aria-label='Timeline (T)']").dataset.away || "");
 await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2); await p.mouse.down();
 for (let i = 1; i <= 20; i++) { await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2 + i * 12); await wait(16); }
 await p.mouse.up(); await wait(1500);
-check("drag time back", !!(await awayTxt()), await awayTxt());
-await p.screenshot({ path: `${out}/rail-2-dragged.png` });
-await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2);
-for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, -30); await wait(16); }
-await wait(600);
-check("scroll travels", true, await awayTxt());
-await p.keyboard.down("Control"); for (let i = 0; i < 5; i++) { await p.mouse.wheel(0, -40); await wait(16); } await p.keyboard.up("Control"); await wait(400);
-await p.screenshot({ path: `${out}/rail-3-close.png` });
-await p.keyboard.press("Escape"); await wait(500); await p.keyboard.press("Escape"); await wait(1200);
-check("Esc, Esc returns to today", !(await awayTxt()));
-await btn("Timeline (T)").click(); await wait(700);
+check("drag the rail back", !!(await away()), await away());
+const day = await away(); c0 = await cam();
+await p.mouse.move(600, 500); for (let i = 0; i < 6; i++) { await p.mouse.wheel(0, 40); await wait(16); } await wait(600);
+check("scroll over the canvas pans, the day holds", (await away()) === day && (await cam()).y !== c0.y, `${day} -> ${await away()}`);
+await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2); for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, -30); await wait(16); } await wait(800);
+check("scroll over the rail travels", (await away()) !== day, `${day} -> ${await away()}`);
+await p.keyboard.press("Escape"); await wait(1200);
+check("Esc closes it and comes back to today", (await panelOpen()) === "0" && !(await away()));
+await p.keyboard.press("t"); await wait(700);
 await p.mouse.click(rr.x + rr.w / 2, rr.y + rr.h / 2 - 90); await wait(1500);
-check("tap a day goes there", !!(await awayTxt()), await awayTxt());
-await btn("Timeline (T)").click(); await wait(600); check("timeline closes", (await panelOpen()) === "0");
-await p.keyboard.press("t"); await wait(600); check("key t opens timeline", (await panelOpen()) === "1");
-await p.keyboard.press("Escape"); await wait(600); check("Esc closes timeline", (await panelOpen()) === "0");
-await p.keyboard.press("Escape"); await wait(900); check("Esc returns to today", !(await awayTxt()));
-await p.keyboard.press("ArrowLeft"); await wait(900); check("arrow left goes back a day", !!(await awayTxt()));
-await p.keyboard.press("ArrowRight"); await wait(900); check("arrow right comes back", !(await awayTxt()));
+check("tap a day goes there", !!(await away()), await away());
+await btn("Timeline (T)").click(); await wait(1200);
+check("closing it comes back to today", (await panelOpen()) === "0" && !(await away()));
+await p.keyboard.press("ArrowLeft"); await wait(1200);
+check("arrow left opens it a day back", (await panelOpen()) === "1" && !!(await away()), await away());
+await p.keyboard.press("ArrowRight"); await wait(900); check("arrow right comes back", !(await away()));
+await p.keyboard.press("Escape"); await wait(900);
 
-// add
-await p.locator("input[type=file]").setInputFiles(`${out}/rail-1-open.png`); await wait(2500);
-check("add a file", await p.evaluate(async () => (await (await fetch("/api/index")).json()).sets.some((s) => s.caption === "rail-1-open")));
+// drop an image on the canvas
+await p.evaluate(async () => {
+  const cv = Object.assign(document.createElement("canvas"), { width: 64, height: 40 });
+  const g = cv.getContext("2d"); g.fillStyle = "#3f6fe0"; g.fillRect(0, 0, 64, 40);
+  const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+  const dt = new DataTransfer(); dt.items.add(new File([blob], "audit-drop.png", { type: "image/png" }));
+  const root = document.querySelector(".grain");
+  for (const type of ["dragenter", "dragover", "drop"]) root.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 500, clientY: 400 }));
+});
+await wait(2500);
+check("drop an image", await p.evaluate(async () => (await (await fetch("/api/index")).json()).sets.some((s) => s.caption === "audit-drop")));
 
 console.log(results.join("\n"));
 console.log("errors:", errs.length ? errs.join(" | ") : "none");

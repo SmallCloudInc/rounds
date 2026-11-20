@@ -220,29 +220,16 @@ export default function App() {
       const k = z / c.z, p = local(cx, cy);
       camera.jump({ z, x: p.x - (p.x - c.x) * k, y: p.y - (p.y - c.y) * k });
     };
-    // one swipe is the events less than a beat apart: its first sheet comes at 60px, each
-    // further one at 220px more, so a gentle swipe moves a day and a flick (with the trackpad's
-    // momentum after it) about seven
-    const travel = { acc: 0, at: 0, last: 0, steps: 0 };
+    // Scrolling pans the canvas, in the time machine too; over the time rail it travels the
+    // days instead (the rail's own handler).
     const onWheel = (e: WheelEvent) => {
-      if (open) return;
+      if (open || (e.target as HTMLElement).closest?.("[data-chrome]")) return;
       e.preventDefault();
       if (pinch) return; // Safari's pinch is already arriving as a gesture
       touched.current = true;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
       const dx = e.deltaX * unit, dy = e.deltaY * unit;
       if (e.ctrlKey || e.metaKey) return zoomAt(camera.now.z * Math.exp(-dy * (e.ctrlKey ? 0.012 : 0.0028)), e.clientX, e.clientY);
-      if (tmNow.current && Math.abs(dy) > Math.abs(dx)) {
-        const now = performance.now();
-        if (now - travel.last > 220) { travel.steps = 0; travel.acc = 0; } // a new swipe starts from nothing
-        travel.last = now;
-        travel.acc = Math.sign(travel.acc) === Math.sign(dy) ? travel.acc + dy : dy;
-        if (Math.abs(travel.acc) >= (travel.steps ? 220 : 60) && now - travel.at > 140) {
-          step.current(travel.acc > 0 ? 1 : -1);
-          travel.acc = 0; travel.at = now; travel.steps++;
-        }
-        return;
-      }
       const c = camera.now, s = sheet.current.s;
       camera.jump({ ...c, x: c.x - dx / s, y: c.y - dy / s });
     };
@@ -340,9 +327,6 @@ export default function App() {
       if (open || searching || typing(e)) return;
       if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || e.key === "/") { e.preventDefault(); setSearching(true); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "v") setTool("move");
-      if (e.key === "h") setTool("hand");
-      if (e.key === "c") setTool((t) => (t === "comment" ? "move" : "comment"));
       // the arrows walk the days
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
@@ -353,7 +337,7 @@ export default function App() {
         return;
       }
       if (e.key === "t") { toggleTime(); return; }
-      if (e.key === "Escape" && timeShown) { setTimeShown(false); return; }
+      if (e.key === "Escape" && timeShown) { closeTime(); return; }
       if (e.key === "Escape" && tool !== "move") { setTool("move"); return; }
       if (e.key === "Escape" && asOf != null) { changeDay(null); return; }
       if (e.key === "0" || e.key === "Escape") fitAll(true);
@@ -363,9 +347,14 @@ export default function App() {
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, [open, fitAll, asOf, searching, tool, timeShown]);
+  // The time machine is one switch: open, the canvas can be on any day; closed, it's today.
   const toggleTime = (from?: DOMRect) => {
     if (from) setTimeOpen(from);
-    setTimeShown((v) => !v);
+    if (timeShown) closeTime(); else setTimeShown(true);
+  };
+  const closeTime = () => {
+    setTimeShown(false);
+    if (asOf != null) changeDay(null);
   };
 
   const zoomBy = (f: number) => {
@@ -440,6 +429,7 @@ export default function App() {
   // time, falls back), and the day you picked comes up out of the haze in its place.
   const lastChange = useRef(0);
   const changeDay = (t: number | null) => {
+    if (t != null) setTimeShown(true); // an earlier day is only ever seen in the time machine
     const today = endOfDay(new Date());
     const cur = asOf ?? today, next = t ?? today;
     const w = worldEl.current, out = outgoing.current, inc = incoming.current;
@@ -468,6 +458,22 @@ export default function App() {
     }
     setAsOf(t);
   };
+  // When the canvas re-forms for any other reason (new work arriving re-sorts the projects),
+  // the project nearest the middle of the view stays where it is on screen.
+  const prevWorld = useRef<typeof world>(null);
+  useLayoutEffect(() => {
+    const before = prevWorld.current;
+    prevWorld.current = world;
+    if (!before || !world || before === world || anchor.current || !placed.current) return;
+    const c = camRef.current;
+    const p = local(innerWidth / 2, innerHeight / 2);
+    const wx = (p.x - c.x) / c.z, wy = (p.y - c.y) / c.z;
+    const gap = (k: Cluster) => Math.hypot(Math.max(k.x - wx, 0, wx - k.x - k.w), Math.max(k.y - wy, 0, wy - k.y - k.h));
+    const was = [...before.clusters].sort((a, b) => gap(a) - gap(b))[0];
+    const now = was && world.clusters.find((k) => k.key === was.key);
+    if (!now || (now.x === was.x && now.y === was.y)) return;
+    camera.jump({ ...c, x: c.x - (now.x - was.x) * c.z, y: c.y - (now.y - was.y) * c.z });
+  }, [world]);
   useLayoutEffect(() => {
     const a = anchor.current;
     anchor.current = null;
@@ -726,17 +732,10 @@ export default function App() {
       {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
       {index && (
         <Dock
-          tool={tool}
           hidden={!!open}
           timeOn={timeShown}
           away={asOf == null ? null : new Date(asOf).toLocaleDateString([], { month: "short", day: "numeric" })}
-          zoomRef={(el) => { zoomEl.current = el; if (el) el.textContent = `${Math.round(camRef.current.z * 100)}%`; }}
-          onTool={setTool}
           onTime={toggleTime}
-          onZoom={zoomBy}
-          onFit={() => fitAll(true)}
-          onReset={() => zoomBy(1 / camera.target.z)}
-          onAdd={(f) => addFiles(f, innerWidth / 2, innerHeight / 2)}
           onSearch={() => setSearching(true)}
         />
       )}
@@ -746,7 +745,7 @@ export default function App() {
           asOf={asOf}
           open={timeShown && !open}
           onDay={changeDay}
-          onClose={() => setTimeShown(false)}
+          onClose={closeTime}
         />
       )}
       {dropping && (

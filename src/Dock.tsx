@@ -1,5 +1,5 @@
-// The dock along the bottom: the tools on the left, the scrubber through the middle, zoom and
-// search on the right. One strip of glass, every target 44 points.
+// The dock along the bottom: the day the canvas shows, which opens the timeline, and search.
+// Panning, zooming and pinning a note need no tool: the canvas and the viewer carry them.
 import { useRef, useState } from "react";
 import { Glyph } from "./glyphs";
 
@@ -29,13 +29,10 @@ function Key({ label, on, accent, onClick, children }: { label: string; on?: boo
 // edge to edge at 44 so the pressed circle stays concentric with the dock (6 in from its ends).
 const Rule = () => <span className="mx-2 h-5 w-px shrink-0" style={{ background: "rgba(21,24,29,0.1)" }} />;
 
-export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZoom, onFit, onReset, onAdd, onSearch }: {
-  tool: Tool; hidden: boolean; timeOn: boolean; away: string | null;
-  zoomRef: (el: HTMLButtonElement | null) => void;
-  onTool: (t: Tool) => void; onTime: (from: DOMRect) => void;
-  onZoom: (f: number) => void; onFit: () => void; onReset: () => void; onAdd: (files: File[]) => void; onSearch: () => void;
+export function Dock({ hidden, timeOn, away, onTime, onSearch }: {
+  hidden: boolean; timeOn: boolean; away: string | null;
+  onTime: (from: DOMRect) => void; onSearch: () => void;
 }) {
-  const file = useRef<HTMLInputElement>(null);
   const timeBtn = useRef<HTMLButtonElement>(null);
   const dock = useRef<HTMLDivElement>(null);
   // a short pause before the first label; after that they follow the pointer at once
@@ -69,19 +66,6 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
       // a click leaves no focus on the dock, so Space pans the canvas instead of pressing a button
       onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); }}
     >
-      <Key label="Move (V)" on={tool === "move"} onClick={() => onTool("move")}><Glyph name="move" /></Key>
-      <Key label="Hand (H)" on={tool === "hand"} onClick={() => onTool("hand")}><Glyph name="hand" /></Key>
-      <Key label="Comment (C)" on={tool === "comment"} accent onClick={() => onTool(tool === "comment" ? "move" : "comment")}><Glyph name="comment" /></Key>
-      <Key label="Add images or pages" onClick={() => file.current?.click()}><Glyph name="photos" /></Key>
-      <input
-        ref={file}
-        type="file"
-        multiple
-        accept="image/png,image/jpeg,image/webp,.html,.htm"
-        className="hidden"
-        onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; e.target.blur(); if (f.length) onAdd(f); }}
-      />
-      <Rule />
       {/* time: the day the canvas shows (today, or the day you went back to); opens the timeline */}
       <button
         ref={timeBtn}
@@ -97,11 +81,6 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
           {away ?? new Date().toLocaleDateString([], { month: "short", day: "numeric" })}
         </span>
       </button>
-      <Rule />
-      <Key label="Zoom out (-)" onClick={() => onZoom(1 / 1.4)}><Glyph name="minus" /></Key>
-      <button ref={zoomRef} onClick={onReset} aria-label="Actual size" data-tip="Actual size" className="h-11 w-11 shrink-0 rounded-full text-center text-[12px] font-[540] tracking-[-0.01em] text-[var(--muted)] transition-colors [font-variant-numeric:tabular-nums] hover:text-[var(--ink)]">100%</button>
-      <Key label="Zoom in (+)" onClick={() => onZoom(1.4)}><Glyph name="add" /></Key>
-      <Key label="Fit everything (0)" onClick={onFit}><Glyph name="fit" /></Key>
       <Rule />
       <Key label="Search (/)" onClick={onSearch}><Glyph name="search" /></Key>
       {tip && (() => {
