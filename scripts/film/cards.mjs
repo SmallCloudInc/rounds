@@ -11,16 +11,17 @@ import { openCanvas } from "./frame.mjs";
 const SITE = process.env.FILM_URL || "http://localhost:4805";
 const [view = "desktop", OUT] = process.argv.slice(2);
 const VIEWS = {
-  desktop: { width: 1440, height: 810, scale: 2, out: [1920, 1080], size: 72, end: 176, mono: 32, wrap: 1600 },
-  phone: { width: 864, height: 1080, scale: 2.5, out: [1080, 1350], size: 60, end: 150, mono: 30, wrap: 1000 },
+  desktop: { width: 1440, height: 810, scale: 2, out: [1920, 1080], size: 72, end: 176, mono: 32, wrap: 1600, mark: 150 },
+  phone: { width: 864, height: 1080, scale: 2.5, out: [1080, 1350], size: 60, end: 150, mono: 30, wrap: 1000, mark: 128 },
 };
 const V = VIEWS[view];
 
+// laid over the footage, bottom left, on a soft rise of paper
 export const LINES = {
-  c1: [["Your Claude sessions make things all day."]],
-  c2: [["Open anything."], ["See what changed.", "quiet"]],
-  c3: [["Leave a note on it."], ["The session that made it answers.", "quiet"]],
-  c4: [["Go back to any day."]],
+  o1: [["All your Claude sessions."], ["One canvas.", "quiet"]],
+  o2: [["Point at what’s wrong."]],
+  o3: [["The session that made it fixes it."]],
+  o4: [["Nothing scrolls away."]],
 };
 
 // the paper: the real ground, nothing on it
@@ -51,13 +52,19 @@ const css = `
     color: rgba(21, 24, 29, 0.86); font-size: ${V.end}px; line-height: 1; text-align: center; }
   .npx { font-family: "Geist Mono", ui-monospace, monospace; font-size: ${V.mono}px; color: #5d6570; text-align: center; margin-top: ${V.end * 0.36}px; letter-spacing: 0; }
 `;
+const over = view === "phone" ? { left: 64, bottom: 104, band: 460, size: 56 } : { left: 88, bottom: 78, band: 320, size: 60 };
 for (const [name, parts] of Object.entries(LINES)) {
-  const html = `<div class="line">${parts.map(([t, tone]) => `<span class="${tone || ""}">${t}</span>`).join(view === "phone" ? "<br>" : " ")}</div>`;
-  await page.setContent(`<style>${css}</style>${html}`);
+  const html = `<div class="band"></div><div class="line over">${parts.map(([t, tone]) => `<span class="${tone || ""}">${t}</span>`).join(" ")}</div>`;
+  await page.setContent(`<style>${css}
+    .band { position: fixed; inset: auto 0 0 0; height: ${over.band}px; background: linear-gradient(0deg, rgba(244,246,247,0.94) 0%, rgba(244,246,247,0.78) 38%, rgba(244,246,247,0) 100%); }
+    .over { position: fixed; left: ${over.left}px; bottom: ${over.bottom}px; text-align: left; font-size: ${over.size}px; max-width: ${V.out[0] - over.left * 2}px; }
+  </style>${html}`);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: path.join(OUT, `${view}-${name}.png`), omitBackground: true });
 }
-await page.setContent(`<style>${css}</style><div><div class="name">Rounds</div><div class="npx">npx rounds-app</div></div>`);
+// the mark (docs/rounds-mark.svg: a note pinned on a round screen) above the name
+const mark = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../docs/rounds-mark.svg"), "utf8");
+await page.setContent(`<style>${css} .mark { width: ${V.mark}px; height: ${V.mark}px; margin: 0 auto ${V.mark * 0.3}px; } .mark svg { width: 100%; height: 100%; display: block; }</style><div><div class="mark">${mark}</div><div class="name">Rounds</div><div class="npx">npx github:krispuckett/rounds</div></div>`);
 await page.evaluate(() => document.fonts.ready);
 await page.screenshot({ path: path.join(OUT, `${view}-end.png`), omitBackground: true });
 await browser.close();

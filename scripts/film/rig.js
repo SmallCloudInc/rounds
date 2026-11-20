@@ -26,7 +26,7 @@
     text: { hot: [8, 13], svg: `<svg width="16" height="26" viewBox="0 0 16 26"><path d="M4 2.5c2.2 0 3.4.8 4 2 .6-1.2 1.8-2 4-2M8 4.5v17M4 23.5c2.2 0 3.4-.8 4-2 .6 1.2 1.8 2 4 2" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><path d="M4 2.5c2.2 0 3.4.8 4 2 .6-1.2 1.8-2 4-2M8 4.5v17M4 23.5c2.2 0 3.4-.8 4-2 .6 1.2 1.8 2 4 2" fill="none" stroke="#111" stroke-width="1.4" stroke-linecap="round"/></svg>` },
   };
   const pointer = {
-    x: -100, y: -100, shape: "", down: false, hidden: true, el: null,
+    x: -100, y: -100, shape: "", down: false, hidden: true, off: false, el: null,
     update() {
       if (!this.el) {
         if (!document.body) return;
@@ -41,7 +41,7 @@
       if (shape !== this.shape) { this.shape = shape; this.el.innerHTML = SHAPES[shape].svg; }
       const [hx, hy] = SHAPES[shape].hot;
       const k = this.down ? 0.9 : 1;
-      this.el.style.display = this.hidden ? "none" : "block";
+      this.el.style.display = this.hidden || this.off ? "none" : "block";
       this.el.style.transformOrigin = `${hx}px ${hy}px`;
       this.el.style.transform = `translate(${this.x - hx}px, ${this.y - hy}px) scale(${k})`;
     },

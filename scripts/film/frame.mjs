@@ -119,7 +119,25 @@ export class Film {
     await this.page.keyboard.up("Control");
   }
   // a scroll of dy CSS pixels, as the page will see it
-  wheel(dy) { return this.page.mouse.wheel(0, dy * (this.cropped ? 1 : this.scale)); }
+  wheel(dy, dx = 0) { const k = this.cropped ? 1 : this.scale; return this.page.mouse.wheel(dx * k, dy * k); }
+  // a two-finger pan that brings a point on screen to another, eased over n frames
+  async pan(fromX, fromY, toX, toY, n = 1, shoot = false) {
+    let sx = 0, sy = 0;
+    const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+    for (let i = 1; i <= n; i++) {
+      const gx = (fromX - toX) * ease(i / n), gy = (fromY - toY) * ease(i / n);
+      await this.wheel(gy - sy, gx - sx);
+      sx = gx; sy = gy;
+      await this.tick({ shoot });
+    }
+  }
+  pointer(show) { return this.page.evaluate((v) => { window.__filmPointer.off = !v; window.__filmPointer.update(); }, show); }
+  // the camera framing a rect (CSS pixels) with a margin, at the window's proportions
+  frame(r, margin = 1.15) {
+    const w = Math.min(this.width, Math.max(r.w * margin, (r.h * margin * this.width) / this.height));
+    const h = (w * this.height) / this.width;
+    return { x: Math.min(Math.max(0, r.x + r.w / 2 - w / 2), this.width - w), y: Math.min(Math.max(0, r.y + r.h / 2 - h / 2), this.height - h), w };
+  }
   rect(selector) {
     return this.page.evaluate((sel) => { const e = typeof sel === "string" ? document.querySelector(sel) : null; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, cx: r.x + r.width / 2, cy: r.y + r.height / 2 }; }, selector);
   }
