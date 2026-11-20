@@ -55,6 +55,8 @@ open the canvas:
 npx github:krispuckett/rounds
 ```
 
+This also updates Rounds, hooks included, whenever there's a new version.
+
 To take it all out:
 
 ```bash

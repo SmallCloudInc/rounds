@@ -2,6 +2,7 @@
 // rounds              open the canvas (indexes first if it never has)
 // rounds --demo       open it on sample work, for a first look with nothing of yours read
 // rounds init         set it up: the folder, the MCP server, the skill, the hooks (asks first)
+// rounds update       bring the copy the hooks and the MCP server run up to this version
 // rounds uninstall    take out what init put in (your canvas data stays)
 // rounds index        read every transcript again
 // rounds mcp          the MCP server, for Claude (stdio)
@@ -12,6 +13,7 @@ import os from "node:os";
 import readline from "node:readline/promises";
 import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 
 const say = (s = "") => process.stdout.write(s + "\n");
 if (Number(process.versions.node.split(".")[0]) < 20) { say(`Rounds needs Node 20 or newer; this is ${process.version}.`); process.exit(1); }
@@ -25,6 +27,44 @@ const yes = rest.includes("--yes") || rest.includes("-y");
 // run through npx, this copy lives in npx's cache, which gets cleared
 const fromNpx = /[\\/]_npx[\\/]/.test(ROOT);
 const quote = (a) => (/\s/.test(a) ? `"${a}"` : a);
+
+// From npx, init copies Rounds to a folder that lasts (~/.rounds/app), where the MCP server and
+// the hooks run. npx fetches the newest Rounds on every run, so opening the canvas brings that
+// copy up to date too: a fingerprint of what it runs says when.
+const APP = ["bin", "server", "hooks", "skill", "dist", "package.json"];
+function fingerprint(dir) {
+  const h = crypto.createHash("sha1");
+  const walk = (rel) => {
+    const f = path.join(dir, rel);
+    if (!fs.existsSync(f)) return;
+    if (fs.statSync(f).isDirectory()) { for (const n of fs.readdirSync(f).sort()) walk(path.join(rel, n)); return; }
+    h.update(rel); h.update(fs.readFileSync(f));
+  };
+  APP.forEach(walk);
+  return h.digest("hex");
+}
+function copyApp(home) {
+  // built beside it, then swapped in, so a hook that runs meanwhile finds a whole copy
+  const next = `${home}.next`, old = `${home}.old`;
+  fs.rmSync(next, { recursive: true, force: true });
+  for (const d of APP) fs.cpSync(path.join(ROOT, d), path.join(next, d), { recursive: true });
+  const pw = path.join(ROOT, "..", "playwright-core");
+  if (fs.existsSync(pw)) fs.cpSync(pw, path.join(next, "node_modules", "playwright-core"), { recursive: true });
+  fs.rmSync(old, { recursive: true, force: true });
+  if (fs.existsSync(home)) fs.renameSync(home, old);
+  fs.renameSync(next, home);
+  fs.rmSync(old, { recursive: true, force: true });
+}
+async function update({ quiet = false } = {}) {
+  const { DATA, CLAUDE } = await import("../server/config.mjs");
+  const home = path.join(DATA, "app");
+  if (!fromNpx || !fs.existsSync(home)) { if (!quiet) say(fromNpx ? "Rounds isn't set up here yet. Run init first." : "This copy of Rounds runs where it is; pull the repo to update it."); return; }
+  if (fingerprint(ROOT) === fingerprint(home)) { if (!quiet) say("Rounds is up to date."); return; }
+  copyApp(home);
+  const skill = path.join(CLAUDE, "skills", "rounds", "SKILL.md");
+  if (fs.existsSync(skill)) fs.copyFileSync(path.join(home, "skill", "SKILL.md"), skill);
+  say("Updated Rounds. Claude sessions you start from now on use the new version.");
+}
 
 if (rest.includes("--demo")) {
   // sample work in its own folder, and no transcripts read: nothing of yours shows
@@ -60,6 +100,7 @@ if (rest.includes("--demo")) {
 }
 
 async function start() {
+  await update({ quiet: true });
   const { loadConfig, DATA } = await import("../server/config.mjs");
   const port = Number(process.env.ROUNDS_PORT || loadConfig().port || 4797);
   process.env.ROUNDS_PORT = process.env.WORKBENCH_PORT = String(port);
@@ -110,10 +151,7 @@ async function init() {
   let home = ROOT;
   if (fromNpx) {
     home = path.join(DATA, "app");
-    fs.rmSync(home, { recursive: true, force: true });
-    for (const d of ["bin", "server", "hooks", "skill", "dist", "package.json"]) fs.cpSync(path.join(ROOT, d), path.join(home, d), { recursive: true });
-    const pw = path.join(ROOT, "..", "playwright-core");
-    if (fs.existsSync(pw)) fs.cpSync(pw, path.join(home, "node_modules", "playwright-core"), { recursive: true });
+    copyApp(home);
     say(`  Copied Rounds to ${home}, so it keeps working after npx clears its cache.`);
   }
   const SELF = path.join(home, "bin", "rounds.mjs");
@@ -213,6 +251,7 @@ async function uninstall() {
 
 if (!cmd || cmd === "start") await start();
 else if (cmd === "init") await init();
+else if (cmd === "update") await update();
 else if (cmd === "uninstall") await uninstall();
 else if (cmd === "index") { const { buildIndex } = await import("../server/indexer.mjs"); await buildIndex({ log: say }); }
 else if (cmd === "mcp") await import("../server/mcp.mjs");
@@ -222,6 +261,6 @@ else if (cmd === "hook") {
   if (!file) { say("rounds hook <notes|tool|git-push>"); process.exit(1); }
   await import(`../hooks/${file}.mjs`);
 } else {
-  say("rounds [init|uninstall|index|--demo]");
+  say("rounds [init|update|uninstall|index|--demo]");
   process.exit(1);
 }
