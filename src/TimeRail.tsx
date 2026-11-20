@@ -205,7 +205,7 @@ export function TimeRail({ index, asOf, open, onDay, onClose }: {
     const st = s.current;
     st.dragging = false;
     if (g && !g.moved) st.target = clamp(Math.round(st.d + (RH / 2 - local(e)) / st.ppd));
-    else if (g) st.target = clamp(Math.round(st.d + (g.v * 0.998) / (1 - 0.998)));
+    else if (g) st.target = clamp(Math.round(st.d + (performance.now() - g.t > 100 ? 0 : (g.v * 0.998) / (1 - 0.998))));
     kick();
   };
 

@@ -45,7 +45,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   const wiping = useRef(false);
   useEffect(() => {
     if (!bef) return;
-    const down = (e: KeyboardEvent) => { if (e.key !== " " || e.repeat || (e.target as HTMLElement)?.closest("textarea")) return; e.preventDefault(); setFlip(true); setWipe(1); };
+    const down = (e: KeyboardEvent) => { if (e.key !== " " || e.repeat || (e.target as HTMLElement)?.closest?.("textarea")) return; e.preventDefault(); setFlip(true); setWipe(1); };
     const up = (e: KeyboardEvent) => { if (e.key !== " ") return; setWipe(0); setTimeout(() => setFlip(false), 300); };
     addEventListener("keydown", down); addEventListener("keyup", up);
     return () => { removeEventListener("keydown", down); removeEventListener("keyup", up); };
@@ -64,11 +64,13 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   }, [s]);
 
   // Fly up from the paper; transform only, so it holds frame.
+  const flyUp = useRef<Animation | null>(null);
   useLayoutEffect(() => {
     const a = box.current!.animate(
       [{ transform: flight(opening.from, rect), borderRadius: `${10 * (rect.w / opening.from.w)}px` }, { transform: "none", borderRadius: "14px" }],
       { duration: 560, easing: "cubic-bezier(0.3, 0.7, 0.1, 1)" },
     );
+    flyUp.current = a;
     a.onfinish = () => setLanded(true);
     return () => a.cancel();
   }, []);
@@ -81,18 +83,22 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
     const el = document.querySelector(`[data-key="${shots[i].key}"]`) as HTMLElement | null;
     const r = el?.getBoundingClientRect();
     const to = r ? { x: r.left, y: r.top, w: r.width, h: r.height } : opening.from;
+    // from wherever the card is now: closed mid-flight, it turns around instead of jumping to full size
+    const now = getComputedStyle(box.current!);
+    const at = { transform: now.transform, borderRadius: now.borderRadius };
+    flyUp.current?.cancel();
     const a = box.current!.animate(
-      [{ transform: "none", borderRadius: "14px" }, { transform: flight(to, rect), borderRadius: `${10 * (rect.w / to.w)}px` }],
+      [at, { transform: flight(to, rect), borderRadius: `${10 * (rect.w / to.w)}px` }],
       { duration: 420, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" },
     );
     a.onfinish = onClose;
   };
 
-  const step = (d: number) => setI((x) => Math.max(0, Math.min(shots.length - 1, x + d)));
+  const step = (d: number) => { if (!closing) setI((x) => Math.max(0, Math.min(shots.length - 1, x + d))); };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest("textarea")) return;
+      if ((e.target as HTMLElement)?.closest?.("textarea, input") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") { if (draft) setDraft(null); else if (placing) setPlacing(false); else close(); }
       if (e.key === "c") setPlacing((p) => !p);
       if (e.key === "ArrowLeft") step(-1);
@@ -186,8 +192,8 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
         </div>
         {shots.length > 1 && (
           <>
-            <Btn onClick={() => step(-1)} label="Previous"><span style={{ opacity: i === 0 ? 0.3 : 1 }}><Glyph name="back" /></span></Btn>
-            <Btn onClick={() => step(1)} label="Next"><span style={{ opacity: i === shots.length - 1 ? 0.3 : 1 }}><Glyph name="next" /></span></Btn>
+            <Btn onClick={() => step(-1)} label="Previous" disabled={i === 0}><span style={{ opacity: i === 0 ? 0.3 : 1 }}><Glyph name="back" /></span></Btn>
+            <Btn onClick={() => step(1)} label="Next" disabled={i === shots.length - 1}><span style={{ opacity: i === shots.length - 1 ? 0.3 : 1 }}><Glyph name="next" /></span></Btn>
           </>
         )}
         <Btn on={placing} onClick={() => setPlacing((p) => !p)} label="Comment" honey><Glyph name="comment" /></Btn>

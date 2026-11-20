@@ -47,6 +47,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
   }, []);
 
   // Fly from the card into place; transform only, so it holds frame.
+  const flyUp = useRef<Animation | null>(null);
   useLayoutEffect(() => {
     const el = box.current!;
     const t = target();
@@ -57,6 +58,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
       ],
       { duration: 560, easing: "cubic-bezier(0.3, 0.7, 0.1, 1)" },
     );
+    flyUp.current = a;
     a.onfinish = () => setLanded(true);
     return () => a.cancel();
   }, []);
@@ -67,10 +69,16 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
     onClosing?.(); // the canvas clears as the page flies back, not after it lands
     const el = box.current!;
     const t = rect;
+    // back to where the page's card lies now (a new post may have moved it), from wherever the
+    // card is: closed mid-flight, it turns around instead of jumping to full size first
+    const r = document.querySelector(`[data-key="page-${page.id}"]`)?.getBoundingClientRect();
+    const to = r ? { x: r.left, y: r.top, w: r.width, h: r.height } : from;
+    const now = getComputedStyle(el);
+    flyUp.current?.cancel();
     const a = el.animate(
       [
-        { transform: "none", borderRadius: "18px" },
-        { transform: `translate(${from.x - t.x}px, ${from.y - t.y}px) scale(${from.w / t.w}, ${from.h / t.h})`, borderRadius: `${14 * (t.w / from.w)}px / ${14 * (t.h / from.h)}px` },
+        { transform: now.transform, borderRadius: now.borderRadius },
+        { transform: `translate(${to.x - t.x}px, ${to.y - t.y}px) scale(${to.w / t.w}, ${to.h / t.h})`, borderRadius: `${14 * (t.w / to.w)}px / ${14 * (t.h / to.h)}px` },
       ],
       { duration: 420, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" },
     );
@@ -79,7 +87,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest("textarea")) return;
+      if ((e.target as HTMLElement)?.closest?.("textarea, input") || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") { if (draft) setDraft(null); else if (placing) setPlacing(false); else close(); }
       if (e.key === "c") setPlacing((p) => !p);
       if (e.key === "d" && prev) setChanges((c) => !c);
@@ -207,7 +215,7 @@ function Surface({ hash, before, scale, height, placing, notes, draft, current, 
   useEffect(() => {
     if (!before) return;
     const down = (e: KeyboardEvent) => {
-      if (e.key !== " " || e.repeat || (e.target as HTMLElement)?.closest("textarea")) return;
+      if (e.key !== " " || e.repeat || (e.target as HTMLElement)?.closest?.("textarea")) return;
       e.preventDefault();
       flip.current = true;
       setWipe(1);
@@ -228,7 +236,10 @@ function Surface({ hash, before, scale, height, placing, notes, draft, current, 
     if (!w) return;
     w.addEventListener("scroll", () => setScroll(w.scrollY), { passive: true });
     // Esc and the comment keys work while the page has focus.
-    w.addEventListener("keydown", (e) => dispatchEvent(new KeyboardEvent("keydown", { key: e.key })));
+    w.addEventListener("keydown", (e) => {
+      if ((e.target as HTMLElement)?.closest?.("textarea, input, select, [contenteditable]")) return;
+      dispatchEvent(new KeyboardEvent("keydown", { key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey }));
+    });
   };
 
   const place = (e: React.MouseEvent) => {
@@ -475,10 +486,11 @@ function Controls({ page, vi, setVi, canCompare, changes, toggleChanges, placing
   );
 }
 
-export function Btn({ on, honey, onClick, label, children }: { on?: boolean; honey?: boolean; onClick: () => void; label: string; children: React.ReactNode }) {
+export function Btn({ on, honey, disabled, onClick, label, children }: { on?: boolean; honey?: boolean; disabled?: boolean; onClick: () => void; label: string; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       aria-pressed={on}
       className="grid h-11 w-11 place-items-center rounded-full transition-[background,color,transform] duration-200 active:scale-95"

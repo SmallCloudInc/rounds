@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { clean, img, thumb, threadLink, when, type Page, type Thread } from "./data";
 import { COL_GAP, type Cluster, type Group, type PlacedItem } from "./layout";
 import { Glyph } from "./glyphs";
@@ -111,7 +111,7 @@ export const ClusterView = memo(function ClusterView({ c, cap, far, near, live, 
           {g.items.map((it, i) => (
             it.kind === "note"
               ? <Note key={it.key} it={it} far={far} />
-              : <Screen key={it.key} it={it} far={far} near={near} live={lit.has(g.id)} hidden={openKey === it.key} noted={noted.has(it.kind === "page" ? it.page.id : `shot-${it.shot.hash}`)} fresh={it.kind === "page" && fresh.has(it.page.id)} onOpen={(el) => onOpen(g, i, el)} />
+              : <Screen key={it.key} it={it} far={far} near={near} live={lit.has(g.id)} hidden={openKey === it.key} noted={noted.has(it.kind === "page" ? it.page.id : `shot-${it.shot.hash}`)} fresh={it.kind === "page" && fresh.has(it.page.id)} label={g.title} onOpen={(el) => onOpen(g, i, el)} />
           ))}
         </Layer>
       ))}
@@ -195,20 +195,31 @@ function Note({ it, far }: { it: Note; far: boolean }) {
   );
 }
 
-function Screen({ it, far, near, live, hidden, noted, fresh, onOpen }: {
-  it: Shown; far: boolean; near: boolean; live: boolean; hidden: boolean; noted: boolean; fresh: boolean; onOpen: (el: HTMLElement) => void;
+function Screen({ it, far, near, live, hidden, noted, fresh, label, onOpen }: {
+  it: Shown; far: boolean; near: boolean; live: boolean; hidden: boolean; noted: boolean; fresh: boolean; label: string; onOpen: (el: HTMLElement) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   // sharp at the size a screen is actually drawn: wide ones need more pixels than narrow ones
   const wide = it.dw > 420;
   // far out a screen is a couple hundred pixels tall at most: the smallest size is plenty
-  const src = it.kind === "shot" ? img(it.shot, far ? (wide ? 480 : 240) : near ? (wide ? 1600 : 960) : wide ? 960 : 480) : thumb(it.hash);
+  const want = it.kind === "shot" ? img(it.shot, far ? (wide ? 480 : 240) : near ? (wide ? 1600 : 960) : wide ? 960 : 480) : thumb(it.hash);
+  // a new size swaps in once it's decoded, so crossing a zoom line never leaves a blank frame
+  const [src, setSrc] = useState(want);
+  useEffect(() => {
+    if (want === src || !live) { if (!live) setSrc(want); return; }
+    let on = true;
+    const im = new Image(); im.src = want;
+    im.decode().catch(() => {}).then(() => { if (on) setSrc(want); });
+    return () => { on = false; };
+  }, [want, live]);
   const r = 10;
   return (
     <button
       ref={ref}
       data-key={it.key}
+      // what VoiceOver reads: the group, which kind of thing, and what's waiting on it
+      aria-label={[label, it.kind === "page" ? "page" : "screen", it.more ? `${it.more} more` : "", noted ? "has notes" : "", fresh ? "new" : ""].filter(Boolean).join(", ")}
       className="press group absolute block"
       style={{ left: it.x, top: it.y, width: it.dw, height: it.dh, visibility: hidden ? "hidden" : "visible" }}
       onClick={() => ref.current && onOpen(ref.current)}

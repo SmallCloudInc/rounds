@@ -227,6 +227,7 @@ export default function App() {
       e.preventDefault();
       if (pinch) return; // Safari's pinch is already arriving as a gesture
       touched.current = true;
+      setFocus(null); // a project's hover dim lets go once the canvas moves under the pointer
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
       const dx = e.deltaX * unit, dy = e.deltaY * unit;
       if (e.ctrlKey || e.metaKey) return zoomAt(camera.now.z * Math.exp(-dy * (e.ctrlKey ? 0.012 : 0.0028)), e.clientX, e.clientY);
@@ -250,14 +251,18 @@ export default function App() {
   useEffect(() => {
     const no = (e: Event) => e.preventDefault();
     document.addEventListener("gesturestart", no);
-    return () => document.removeEventListener("gesturestart", no);
+    // nor Chrome on a pinch (or ⌘ scroll) over the viewer, the dock or search
+    const noZoom = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
+    document.addEventListener("wheel", noZoom, { passive: false });
+    return () => { document.removeEventListener("gesturestart", no); document.removeEventListener("wheel", noZoom); };
   }, []);
 
   const [space, setSpace] = useState(false);
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key !== " " || open || typing(e)) return;
+      // a focused button or slider takes Space as a press, as everywhere on the Mac
+      if (e.key !== " " || open || typing(e) || (e.target as HTMLElement)?.closest?.("button, a, [role=slider]")) return;
       e.preventDefault();
       setSpace(true);
     };
@@ -274,10 +279,14 @@ export default function App() {
     return () => { removeEventListener("keydown", down); removeEventListener("keyup", up); removeEventListener("blur", blur); removeEventListener("focus", blur); document.removeEventListener("visibilitychange", seen); };
   }, [open]);
 
-  const drag = useRef<{ x: number; y: number; cx: number; cy: number; vx: number; vy: number; t: number; moved: boolean; space: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; cx: number; cy: number; vx: number; vy: number; t: number; moved: boolean; space: boolean; caught: boolean } | null>(null);
   const begin = (e: React.PointerEvent, withSpace: boolean) => {
+    // a press while the canvas still glides catches it where it is, and is no click
+    const n = camera.now, t = camera.target;
+    const caught = Math.abs(t.x - n.x) > 2 || Math.abs(t.y - n.y) > 2 || Math.abs(t.z / n.z - 1) > 0.01;
+    if (caught) camera.jump(n);
     const c = camera.now;
-    drag.current = { x: e.clientX, y: e.clientY, cx: c.x, cy: c.y, vx: 0, vy: 0, t: performance.now(), moved: false, space: withSpace };
+    drag.current = { x: e.clientX, y: e.clientY, cx: c.x, cy: c.y, vx: 0, vy: 0, t: performance.now(), moved: false, space: withSpace, caught };
   };
   // With space held, the press belongs to the canvas, whatever is under it.
   const onPointerDownCapture = (e: React.PointerEvent) => {
@@ -300,7 +309,7 @@ export default function App() {
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (!d.moved && !d.space && Math.hypot(dx, dy) < 4) return;
     if (!d.moved) {
-      d.moved = true; touched.current = true; setGrabbing(true);
+      d.moved = true; touched.current = true; setGrabbing(true); setFocus(null);
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }
     const now = performance.now(), dt = Math.max(1, now - d.t);
@@ -316,11 +325,13 @@ export default function App() {
     setTimeout(() => { if (drag.current === d) drag.current = null; }, 0);
     if (!d?.moved) return;
     const c = camera.now;
-    // momentum, projected the way a scroll view decelerates
+    // momentum, projected the way a scroll view decelerates; a hand held still before letting go
+    // throws nothing
+    if (performance.now() - d.t > 100) return;
     const proj = (v: number) => (v * 0.998) / (1 - 0.998);
     camera.glide({ ...c, x: c.x + proj(d.vx), y: c.y + proj(d.vy) });
   };
-  const suppressClick = () => !!drag.current?.moved || !!drag.current?.space || space || tool === "hand";
+  const suppressClick = () => !!drag.current?.moved || !!drag.current?.space || !!drag.current?.caught || space || tool === "hand";
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -336,7 +347,7 @@ export default function App() {
         changeDay(t >= endOfDay(new Date()) ? null : t);
         return;
       }
-      if (e.key === "t") { toggleTime(); return; }
+      if (e.key === "t" || e.key === "T") { toggleTime(); return; }
       if (e.key === "Escape" && timeShown) { closeTime(); return; }
       if (e.key === "Escape" && tool !== "move") { setTool("move"); return; }
       if (e.key === "Escape" && asOf != null) { changeDay(null); return; }
@@ -581,6 +592,18 @@ export default function App() {
   const onOpen = useCallback((g: Group, i: number, el: HTMLElement) => { if (!latest.current.suppressClick()) latest.current.openItem(g, i, el); }, []);
 
   const noted = useMemo(() => new Set((index?.comments ?? []).map((c) => c.page)), [index]);
+  // Tab walks the canvas: the camera brings what has focus into view. The window itself never
+  // scrolls; a focused card off screen would otherwise shift the whole canvas and leave it there.
+  const onFocusIn = (e: React.FocusEvent) => {
+    const r0 = root.current;
+    if (r0) { r0.scrollTop = 0; r0.scrollLeft = 0; }
+    const el = e.target as HTMLElement;
+    if (!el.matches?.(":focus-visible") || !worldEl.current?.contains(el)) return;
+    const r = el.getBoundingClientRect(), m = 96;
+    const dx = r.left < m ? m - r.left : r.right > innerWidth - m ? innerWidth - m - r.right : 0;
+    const dy = r.top < m ? m - r.top : r.bottom > innerHeight - 120 ? innerHeight - 120 - r.bottom : 0;
+    if (dx || dy) { const c = camRef.current; camera.glide({ ...c, x: c.x + dx, y: c.y + dy }); }
+  };
   const fresh = useMemo(() => new Set((index?.pages ?? []).filter((p) => p.at > (seen.pages[p.id] ?? seen.since)).map((p) => p.id)), [index, seen]);
 
   return (
@@ -597,6 +620,8 @@ export default function App() {
       onDragEnter={() => { dragDepth.current++; }}
       onDragLeave={() => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropping(null); } }}
       onDrop={onDrop}
+      onFocus={onFocusIn}
+      onScroll={(e) => { e.currentTarget.scrollTop = 0; e.currentTarget.scrollLeft = 0; }}
     >
       <Ground cam={camRef} dim={veiled} />
 
