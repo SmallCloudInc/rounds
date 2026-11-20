@@ -171,7 +171,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
         toggleChanges={() => setChanges((c) => !c)}
         placing={placing}
         togglePlacing={() => setPlacing((p) => !p)}
-        thread={thread?.id}
+        thread={thread && !thread.gone ? thread.id : undefined}
         closing={closing}
         onClose={close}
       />
@@ -361,7 +361,7 @@ function whereTo(note: Comment) {
   const to = note.threadTitle ? `“${note.threadTitle}”` : "its session";
   if (note.reply) return note.threadTitle ? `“${note.threadTitle}” replied` : "Its session replied";
   if (note.state === "sent") return `Sent to ${to}`;
-  if (note.state === "kept" || note.route === "kept") return "Stays here: no session made this";
+  if (note.state === "kept" || note.route === "kept") return note.thread ? "Stays here: its session is no longer on this Mac" : "Stays here: no session made this";
   if (note.route === "relay") return `On its way to ${to}`;
   return `Goes to ${to} with your next message there`;
 }

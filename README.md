@@ -42,6 +42,8 @@ Step back to any day.
 
 Search a session by name to see everything it made, newest first.
 
+Claude Code deletes terminal sessions after 30 days by default. What they made stays on your canvas.
+
 ## Set it up
 
 You need a Mac, Node 20 or newer, and Claude Code.

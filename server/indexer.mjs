@@ -252,6 +252,74 @@ const titleOf = (html) => {
   return m ? m[1].trim().replace(/&amp;/g, "&") : null;
 };
 
+// Rounds keeps what it has seen. Claude Code deletes a terminal session's transcript after
+// cleanupPeriodDays (30 by default), and a desktop thread's record goes when the thread is
+// deleted; the screens and pages they showed are already in the store. So each index starts from
+// the last one: a send or a page read from a transcript that's gone carries on, and so do a
+// session's name and its days. A session no longer on this Mac is marked gone: its work stays
+// on the canvas, but there's nothing left in Claude to open or send a note to. Posts and pushes
+// keep their own records in the data folder and are read from there. What the config now keeps
+// private still leaves.
+function keepSeen(index, P) {
+  let prev;
+  try { prev = JSON.parse(fs.readFileSync(path.join(DATA, "index.json"), "utf8")); } catch { return 0; }
+  const threads = new Map(index.threads.map((t) => [t.id, t]));
+  // a send's session as it is now, or as the last index knew it (to judge a session gone private)
+  const was = new Map((prev.threads || []).map((t) => [t.id, t]));
+  const whose = (id) => (id && (threads.get(id) || was.get(id))) || null;
+  let kept = 0;
+  for (const t of prev.threads || []) {
+    const now = threads.get(t.id);
+    if (now) {
+      // its days are counted from its transcript: the ones counted before stay counted
+      for (const [d, n] of Object.entries(t.days || {})) if (!(now.days[d] >= n)) now.days[d] = n;
+      continue;
+    }
+    if (P.isPrivate(t.title, t.cwd)) continue;
+    const g = { ...t, gone: true, project: P.of([t.title], t.cwd) };
+    index.threads.push(g);
+    threads.set(t.id, g);
+  }
+  // a post tied to the Claude Code session inside a desktop thread that's gone finds that thread
+  const byCli = new Map();
+  for (const t of index.threads) if (t.gone) for (const c of t.clis || []) byCli.set(c, t.id);
+  for (const x of [...index.sets, ...index.pages]) if (x.thread && !threads.has(x.thread) && byCli.has(x.thread)) x.thread = byCli.get(x.thread);
+
+  const inStore = (sh) => fs.existsSync(path.join(IMG, `${sh.hash}.${sh.ext}`));
+  const have = new Set(index.sets.map((x) => x.id));
+  for (const x of prev.sets || []) {
+    if (x.kind || have.has(x.id)) continue; // only sends read from transcripts have no kind
+    const t = x.thread ? threads.get(x.thread) : null, w = whose(x.thread);
+    if (P.isPrivate(x.caption, w?.title, w?.cwd)) continue;
+    const shots = x.shots.filter(inStore);
+    if (!shots.length) continue;
+    index.sets.push({ ...x, thread: t ? x.thread : null, shots, project: t ? P.of([t.title], t.cwd) : x.project });
+    kept++;
+  }
+  index.sets.sort((a, b) => a.at - b.at);
+
+  const pages = new Map(index.pages.map((x) => [x.id, x]));
+  for (const x of prev.pages || []) {
+    if (x.posted) continue;
+    const versions = x.versions.filter((v) => fs.existsSync(path.join(STORE, `${v.hash}.html`)));
+    const now = pages.get(x.id);
+    if (now) {
+      // a page rebuilt from fewer transcripts than before keeps the publishes it had
+      const hashes = new Set(now.versions.map((v) => v.hash));
+      const more = versions.filter((v) => !hashes.has(v.hash));
+      if (more.length) { now.versions = [...now.versions, ...more].sort((a, b) => a.at - b.at); now.at = now.versions[now.versions.length - 1].at; }
+      continue;
+    }
+    const t = x.thread ? threads.get(x.thread) : null, w = whose(x.thread);
+    if (!versions.length || P.isPrivate(x.title, x.dir, w?.title, w?.cwd)) continue;
+    index.pages.push({ ...x, thread: t ? x.thread : null, versions, at: versions[versions.length - 1].at });
+    kept++;
+  }
+  index.folders = [...new Set([...(index.folders || []), ...(prev.folders || [])])];
+  index.projects = { ...(prev.projects || {}), ...Object.fromEntries(P.names) };
+  return kept;
+}
+
 export async function buildIndex({ log = () => {} } = {}) {
   fs.mkdirSync(IMG, { recursive: true });
   const P = projects();
@@ -384,6 +452,8 @@ export async function buildIndex({ log = () => {} } = {}) {
   // every folder a session ran in, made something or not: where a first launch looks for pushes
   const folders = [...new Set([...cliMeta.values(), ...threads.values()].map((m) => m.cwd).filter((c) => c && !P.isPrivate(c)))];
   const index = { builtAt: Date.now(), projects: Object.fromEntries(P.names), threads: threadList, pages: out, sets, folders };
+  const kept = keepSeen(index, P);
+  if (kept) log(`${kept} kept from earlier: their transcripts are gone`);
   filePostTopics(index); // a post that named its topic is filed under it now
   fs.writeFileSync(path.join(DATA, "index.json"), JSON.stringify(index));
   log(`${out.length} pages, ${out.reduce((n, p) => n + p.versions.length, 0)} versions, ${sets.length} sets, ${sets.reduce((n, s) => n + s.shots.length, 0)} screens`);

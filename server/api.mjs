@@ -183,6 +183,8 @@ function comments(idx) {
     }
     c.route ||= route(c.thread);
     c.threadTitle ||= threads.get(c.thread)?.title || null;
+    // a note still waiting when its session left this Mac will never be heard: it stays here
+    if (c.state === "queued" && threads.get(c.thread)?.gone) { c.state = "kept"; c.route = "kept"; }
     if (c.state === "sent") continue;
     const s = readJSON(path.join(SENT, `${c.id}.json`), null);
     if (s) Object.assign(c, { state: "sent", delivery: s.delivery || "delivered" });
@@ -363,10 +365,12 @@ export async function handle(req, res, next) {
               const sh = set?.shots.find((s) => s.hash === c.hash);
               if (!set || !sh || !c.text?.trim()) return json(res, { error: "bad" }, 400);
               const thread = idx.threads.find((t) => t.id === set.thread);
+              // a session no longer on this Mac can't hear it: the note stays on the canvas
+              const to = thread?.gone ? null : set.thread;
               const comment = {
                 id: crypto.randomUUID().slice(0, 8), page: c.page, hash: c.hash, x: c.x, y: c.y,
-                text: c.text.trim(), at: Date.now(), thread: set.thread || null, state: set.thread ? "queued" : "kept",
-                route: route(set.thread), threadTitle: thread?.title || null,
+                text: c.text.trim(), at: Date.now(), thread: set.thread || null, state: to ? "queued" : "kept",
+                route: route(to), threadTitle: thread?.title || null,
               };
               fs.writeFileSync(COMMENTS, JSON.stringify([...readJSON(COMMENTS, []), comment], null, 1));
               if (comment.route === "relay") {
@@ -385,6 +389,7 @@ export async function handle(req, res, next) {
             const page = idx.pages.find((x) => x.id === c.page);
             if (!page || !c.text?.trim()) return json(res, { error: "bad" }, 400);
             const thread = idx.threads.find((t) => t.id === page.thread);
+            const to = thread?.gone ? null : page.thread;
             const comment = {
               id: crypto.randomUUID().slice(0, 8),
               page: page.id,
@@ -393,8 +398,8 @@ export async function handle(req, res, next) {
               text: c.text.trim(),
               at: Date.now(),
               thread: page.thread || null,
-              state: page.thread ? "queued" : "kept",
-              route: route(page.thread),
+              state: to ? "queued" : "kept",
+              route: route(to),
               threadTitle: thread?.title || null,
             };
             fs.writeFileSync(COMMENTS, JSON.stringify([...readJSON(COMMENTS, []), comment], null, 1));

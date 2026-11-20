@@ -42,8 +42,8 @@ type Leaving = { key: string; src: string; at: Rect; id: number };
 // the screen as the canvas holds it, already loaded: shown under the larger image until it arrives
 const tileSrc = (key: string) => (document.querySelector(`[data-key="${key}"] img`) as HTMLImageElement | null)?.currentSrc || "";
 
-export function ShotStage({ opening, comments, onComment, onStep, onClosing, onClose }: {
-  opening: ShotOpening; comments: Comment[];
+export function ShotStage({ opening, comments, gone, onComment, onStep, onClosing, onClose }: {
+  opening: ShotOpening; comments: Comment[]; gone: Set<string>;
   onComment: (c: Comment) => void; onStep: (key: string) => void; onClosing?: () => void; onClose: () => void;
 }) {
   const { group } = opening;
@@ -266,7 +266,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
           </>
         )}
         <Btn on={placing} onClick={() => setPlacing((p) => !p)} label="Comment" honey><Glyph name="comment" /></Btn>
-        {thread && (
+        {thread && !gone.has(thread) && (
           <a href={threadLink(thread)} target="_blank" rel="noreferrer" className="grid h-11 w-11 place-items-center rounded-full text-[var(--ink)] transition-colors hover:bg-black/5" aria-label="Open thread">
             <Glyph name="open" />
           </a>

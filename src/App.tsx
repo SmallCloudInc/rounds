@@ -495,9 +495,10 @@ export default function App() {
     setChat(id);
     if (!find) setAsOf(null);
   };
-  // In the timeline a group's title shows its session; elsewhere it opens the thread in Claude.
+  // In the timeline a group's title shows its session; elsewhere it opens the thread in Claude,
+  // when the thread is still on this Mac.
   const titleClick = (g: Group) => {
-    if (!timeShown || !g.thread) return false;
+    if (!g.thread || (!timeShown && !g.gone)) return false;
     // a topic gathers sends from many sessions: find this group again by one of its session's own
     const mine = g.all.find((it) => (it.kind === "shot" && it.thread === g.thread) || (it.kind === "page" && it.page.thread === g.thread));
     showSession(g.thread, mine ? (mine.kind === "shot" ? mine.set : mine.key) : g.id);
@@ -668,6 +669,7 @@ export default function App() {
   const onTitle = useCallback((g: Group) => latest.current.titleClick(g), []);
 
   const noted = useMemo(() => new Set((index?.comments ?? []).map((c) => c.page)), [index]);
+  const gone = useMemo(() => new Set((index?.threads ?? []).filter((t) => t.gone).map((t) => t.id)), [index]);
   // Tab walks the canvas: the camera brings what has focus into view. The window itself never
   // scrolls; a focused card off screen would otherwise shift the whole canvas and leave it there.
   const onFocusIn = (e: React.FocusEvent) => {
@@ -884,6 +886,7 @@ export default function App() {
           key={shots.group.id}
           opening={shots}
           comments={index.comments}
+          gone={gone}
           onComment={(c) => setIndex((i) => (i ? { ...i, comments: [...i.comments, c] } : i))}
           onStep={setShotKey}
           onClosing={() => setLeaving(true)}

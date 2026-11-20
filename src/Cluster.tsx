@@ -147,7 +147,8 @@ function Layer({ children }: { children: React.ReactNode }) {
 }
 
 // A group's title: the thread's own caption, and when. It opens the thread it came from; in the
-// timeline it shows that session's work alone instead (⌘-click still opens the thread). Far out
+// timeline it shows that session's work alone instead (⌘-click still opens the thread). A
+// session no longer on this Mac has no thread to open: its title always shows its work. Far out
 // it holds one size on screen, growing up into the air above its group, so it never has to hide.
 function GroupTitle({ g, far, colW, onTitle }: { g: Group; far: boolean; colW: number; onTitle: (g: Group) => boolean }) {
   const inner = (
@@ -159,6 +160,11 @@ function GroupTitle({ g, far, colW, onTitle }: { g: Group; far: boolean; colW: n
     </>
   );
   const style: React.CSSProperties = { left: g.x, top: g.y + 34, transform: "translateY(-100%)", width: far ? colW : Math.max(g.w, 640) };
+  if (g.thread && g.gone) return (
+    <button type="button" className="group absolute flex items-baseline gap-3 text-left" style={style} onPointerDown={(e) => e.stopPropagation()} onClick={() => onTitle(g)}>
+      {inner}
+    </button>
+  );
   return g.thread ? (
     <a
       href={threadLink(g.thread)} target="_blank" rel="noreferrer" className="group absolute flex items-baseline gap-3" style={style}

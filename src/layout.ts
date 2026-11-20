@@ -33,6 +33,7 @@ export type Group = {
   id: string;
   title: string;
   thread: string | null;
+  gone?: boolean; // its session is no longer on this Mac
   at: number;
   x: number; y: number; w: number; h: number;
   items: PlacedItem[]; // only what lies on the canvas
@@ -112,7 +113,7 @@ export function layout(index: Index, asOf: number | null = null, all = false): {
     gs.sort((a, b) => b.last - a.last);
     const groups = all ? gs : gs.slice(0, GROUPS_PER_PROJECT);
     const threads = index.threads
-      .filter((t) => t.project === key && !t.archived && t.at <= end + 864e5 && (all || end - t.at < WINDOW))
+      .filter((t) => t.project === key && !t.archived && !t.gone && t.at <= end + 864e5 && (all || end - t.at < WINDOW))
       .filter((t) => !groups.some((g) => g.thread === t.id))
       .sort((a, b) => b.at - a.at)
       .slice(0, 6);
@@ -152,6 +153,7 @@ export function layout(index: Index, asOf: number | null = null, all = false): {
         id: g.id,
         title: g.topic ? clean(g.caption) : titleFrom(g.caption, t?.title || ""),
         thread: g.thread,
+        ...(t?.gone ? { gone: true } : {}),
         at: g.last,
         x: cx, y, w, h,
         items: items.map((it) => ({ ...it, x: cx + it.x, y: y + it.y })),

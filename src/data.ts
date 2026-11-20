@@ -1,6 +1,7 @@
 export type Version = { at: number; hash: string };
 export type Page = { id: string; url: string; title: string; thread: string | null; project: string; at: number; versions: Version[]; topic?: string; posted?: boolean };
-export type Thread = { id: string; title: string; cwd: string; archived: boolean; at: number; recap: string; project: string; days?: Record<string, number> };
+/** A thread gone from this Mac (its transcript cleaned up, its desktop record deleted) keeps its work on the canvas. */
+export type Thread = { id: string; title: string; cwd: string; archived: boolean; at: number; recap: string; project: string; days?: Record<string, number>; gone?: boolean };
 export type Comment = {
   id: string; page: string; hash: string; x: number; y: number; text: string; at: number;
   thread: string | null; state: "queued" | "sent" | "kept"; delivery?: string;
