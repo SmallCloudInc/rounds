@@ -4,6 +4,7 @@
 // the rail to travel (it carries on at your hand's speed, then settles on a day), pinch or
 // ⌘/ctrl scroll to see days, weeks or months, tap a day to go there.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { reducedTransparency } from "./look";
 import type { Index } from "./data";
 import { dayKey, endOfDay } from "./days";
 
@@ -19,6 +20,7 @@ const startOf = (k: number) => { const d = new Date(); d.setHours(12, 0, 0, 0); 
 export function TimeRail({ index, asOf, open, onDay, onClose }: {
   index: Index; asOf: number | null; open: boolean; onDay: (t: number | null) => void; onClose: () => void;
 }) {
+  const solid = reducedTransparency();
   const [vh, setVh] = useState(innerHeight);
   useEffect(() => { const r = () => setVh(innerHeight); addEventListener("resize", r); return () => removeEventListener("resize", r); }, []);
   const H = vh - DOCK_CLEAR; // from the top of the window down to just above the dock
@@ -277,9 +279,9 @@ export function TimeRail({ index, asOf, open, onDay, onClose }: {
         className="pointer-events-none absolute inset-y-0 right-0"
         style={{
           width: W + 72,
-          WebkitBackdropFilter: "blur(14px) saturate(1.15)",
-          backdropFilter: "blur(14px) saturate(1.15)",
-          background: "linear-gradient(270deg, color-mix(in srgb, var(--wall) 82%, transparent) 30%, color-mix(in srgb, var(--wall) 0%, transparent))",
+          WebkitBackdropFilter: solid ? "none" : "blur(14px) saturate(1.15)",
+          backdropFilter: solid ? "none" : "blur(14px) saturate(1.15)",
+          background: `linear-gradient(270deg, color-mix(in srgb, var(--wall) ${solid ? 97 : 82}%, transparent) 30%, color-mix(in srgb, var(--wall) 0%, transparent))`,
           WebkitMaskImage: "linear-gradient(270deg, #000 38%, transparent), linear-gradient(180deg, #000 70%, transparent)",
           maskImage: "linear-gradient(270deg, #000 38%, transparent), linear-gradient(180deg, #000 70%, transparent)",
           WebkitMaskComposite: "source-in",
@@ -304,10 +306,14 @@ export function TimeRail({ index, asOf, open, onDay, onClose }: {
         aria-orientation="vertical"
         aria-label="Day"
         aria-valuetext={`${name} ${date}`}
+        aria-valuenow={label}
+        aria-valuemin={0}
+        aria-valuemax={span}
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); go(label + 1); }
-          if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); go(label - 1); }
+          const to = { ArrowUp: label + 1, ArrowDown: label - 1, PageUp: label + 7, PageDown: label - 7, Home: 0, End: span }[e.key];
+          if (to == null) return;
+          e.preventDefault(); e.stopPropagation(); go(to);
         }}
       >
         <canvas ref={canvas} className="absolute inset-0" style={{ width: W, height: RH }} />

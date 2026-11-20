@@ -24,3 +24,8 @@ export function pickLook(): string {
   return k;
 }
 export const look = () => LOOKS[document.documentElement.dataset.look || "mist"] || LOOKS.mist;
+
+// Reduce Transparency is on: glass goes solid, nothing blurs what's behind it
+export const reducedTransparency = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-transparency: reduce)").matches;
+// Reduce Motion is on: things fade into place instead of flying
+export const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { reducedTransparency } from "./look";
 import { loadIndex, readSeen, markSeen, type Index, type Page } from "./data";
 import { layout, type Cluster, type Group } from "./layout";
 import { useCamera, fit, type Cam } from "./camera";
@@ -121,6 +122,10 @@ export default function App() {
       split();
     }, 180);
     setFar(c.z < 0.42); // a no-op unless the line is crossed
+    // mid-move too, a few times a second once it has gone a good way: a long pan back finds its
+    // screens already loading instead of grey until the hand stops
+    const lv = lastView.current;
+    if (!settled && performance.now() - lv.t > 180 && (Math.abs(c.x - lv.x) > innerWidth * 0.4 || Math.abs(c.y - lv.y) > innerHeight * 0.4 || Math.abs(Math.log(c.z / lv.z)) > 0.3)) updateView(c);
   });
   // Safari far out: a layer per group, decided at rest. Not in the time machine, where each step
   // through the days would draw every group's layer anew.
@@ -129,7 +134,9 @@ export default function App() {
     if (SPLITS) worldEl.current?.toggleAttribute("data-split", splitFits.current && !tmNow.current && camRef.current.z <= SPLIT_Z);
   }
   // what's near the view, so far screens can let their images go
+  const lastView = useRef({ t: 0, x: 0, y: 0, z: 1 });
   function updateView(c: Cam) {
+    lastView.current = { t: performance.now(), x: c.x, y: c.y, z: c.z };
     const s = sheet.current;
     const x0 = (innerWidth / 2 - innerWidth / 2 / s.s - c.x) / c.z, y0 = (-s.top / s.s - c.y) / c.z;
     const w = innerWidth / s.s / c.z, h = innerHeight / s.s / c.z;
@@ -148,14 +155,24 @@ export default function App() {
   const root = useRef<HTMLDivElement>(null);
   const placed = useRef(false);
 
+  // While a screen, a page or search is open, what's behind it is out of reach: no tabbing into
+  // the canvas behind the veil, and VoiceOver reads only what's open.
+  useLayoutEffect(() => {
+    const on = !!open || searching;
+    worldEl.current?.toggleAttribute("inert", on);
+    for (const el of document.querySelectorAll("[data-chrome]")) if (!el.querySelector('[role="combobox"]')) el.toggleAttribute("inert", on);
+  }, [open, searching]);
+
+  const [unreachable, setUnreachable] = useState(false);
   useEffect(() => {
-    loadIndex().then((i) => {
+    loadIndex().catch(() => { setUnreachable(true); return null; }).then((i) => {
+      if (!i) return;
       setIndex(i);
       // a link to one post (#id, as the MCP server gives it) opens the canvas on it
       const id = decodeURIComponent(location.hash.slice(1));
       if (id) { finding.current = { id, at: Date.now(), back: false }; setFindTick((n) => n + 1); }
     });
-    const t = setInterval(() => loadIndex().then(setIndex), 60e3);
+    const t = setInterval(() => loadIndex().then((i) => { setIndex(i); setUnreachable(false); }, () => {}), 60e3);
     // what sessions post shows within seconds, lit where it lands; notes and replies too
     let last: { posted: number; comments: number } | null = null;
     const s = setInterval(async () => {
@@ -577,12 +594,22 @@ export default function App() {
   // Clusters only draw again when something about them changed: steady handlers, and for each
   // cluster the list of its groups near the view as one string.
   const openKey = openPage_ ? `page-${openPage_.page.id}` : shots ? shotKey ?? undefined : undefined;
+  // Screens within a screen of the view load; ones already loaded let go only two screens out,
+  // so panning back and forth never finds them grey.
+  const wasLive = useRef(new Set<string>());
   const live = useMemo(() => {
     const m = new Map<string, string>();
     if (!world) return m;
+    type A = { x: number; y: number; w: number; h: number };
+    const hit = (g: A, a: A) => g.x < a.x + a.w && g.x + g.w > a.x && g.y < a.y + a.h && g.y + g.h > a.y;
+    const keep = view && { x: view.x - view.w / 3, y: view.y - view.h / 3, w: (view.w * 5) / 3, h: (view.h * 5) / 3 };
+    const now = new Set<string>();
     for (const c of world.clusters) {
-      m.set(c.key, c.groups.filter((g) => !view || (g.x < view.x + view.w && g.x + g.w > view.x && g.y < view.y + view.h && g.y + g.h > view.y)).map((g) => g.id).join(" "));
+      const ids = c.groups.filter((g) => !view || hit(g, view) || (wasLive.current.has(g.id) && hit(g, keep!))).map((g) => g.id);
+      for (const id of ids) now.add(id);
+      m.set(c.key, ids.join(" "));
     }
+    wasLive.current = now;
     return m;
   }, [world, view]);
   const latest = useRef({ focusCluster, openItem, suppressClick });
@@ -604,6 +631,7 @@ export default function App() {
     const dy = r.top < m ? m - r.top : r.bottom > innerHeight - 120 ? innerHeight - 120 - r.bottom : 0;
     if (dx || dy) { const c = camRef.current; camera.glide({ ...c, x: c.x + dx, y: c.y + dy }); }
   };
+  const solidGlass = reducedTransparency();
   const fresh = useMemo(() => new Set((index?.pages ?? []).filter((p) => p.at > (seen.pages[p.id] ?? seen.since)).map((p) => p.id)), [index, seen]);
 
   return (
@@ -752,15 +780,24 @@ export default function App() {
       <div
         className="pointer-events-none fixed inset-0"
         style={{
-          background: "color-mix(in srgb, var(--wall) 42%, transparent)",
-          backdropFilter: open ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
-          WebkitBackdropFilter: open ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
+          background: `color-mix(in srgb, var(--wall) ${solidGlass ? 90 : 42}%, transparent)`,
+          backdropFilter: open && !solidGlass ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
+          WebkitBackdropFilter: open && !solidGlass ? `blur(${10 * camRef.current.z * sheet.current.s}px) saturate(0.85)` : "none",
           opacity: veiled ? 1 : 0,
           transition: veiled ? "opacity 560ms cubic-bezier(0.3, 0.7, 0.1, 1)" : "opacity 420ms cubic-bezier(0.4, 0, 0.2, 1)",
         }}
       />
 
       {index && !index.sets.length && !index.pages.length && <Empty onImported={() => loadIndex().then(setIndex)} />}
+      {!index && unreachable && (
+        <div className="fixed inset-0 grid place-items-center pb-24" role="alert">
+          <div className="flex flex-col items-center px-6 text-center">
+            <div className="text-[22px] font-semibold tracking-[-0.02em] text-[var(--ink)]">Can't reach Rounds</div>
+            <p className="mt-2 text-[15px] text-[var(--muted)]">Start it again in your terminal, then try again.</p>
+            <button onClick={() => location.reload()} className="press mt-6 h-11 rounded-full bg-[var(--ink)] px-5 text-[14px] font-[560] text-white">Try again</button>
+          </div>
+        </div>
+      )}
       {index && (
         <Dock
           hidden={!!open}

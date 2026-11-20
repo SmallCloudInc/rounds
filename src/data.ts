@@ -23,6 +23,7 @@ export type Index = { builtAt: number; projects: Record<string, string>; threads
 
 export async function loadIndex(fresh = false): Promise<Index> {
   const r = await fetch(`/api/index${fresh ? "?fresh" : ""}`);
+  if (!r.ok) throw new Error(`index: ${r.status}`);
   return r.json();
 }
 
@@ -35,6 +36,7 @@ export const threadLink = (id: string) => `claude://claude.ai/epitaxy/${id}`;
 
 export async function postComment(c: { page: string; hash: string; x: number; y: number; text: string; set?: string }): Promise<Comment> {
   const r = await fetch("/api/comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c) });
+  if (!r.ok) throw new Error(`comment not saved: ${r.status}`);
   return r.json();
 }
 

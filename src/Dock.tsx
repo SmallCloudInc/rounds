@@ -70,7 +70,8 @@ export function Dock({ hidden, timeOn, away, onTime, onSearch }: {
       <button
         ref={timeBtn}
         onClick={() => timeBtn.current && onTime(timeBtn.current.getBoundingClientRect())}
-        aria-label="Timeline (T)"
+        aria-label={`${away ?? new Date().toLocaleDateString([], { month: "short", day: "numeric" })}, Timeline`}
+        aria-keyshortcuts="T"
         aria-pressed={timeOn}
         data-away={away ?? undefined}
         data-tip="Timeline (T)"

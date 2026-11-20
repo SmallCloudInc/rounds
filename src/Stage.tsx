@@ -3,6 +3,7 @@ import { clean, pageSrc, postComment, shot, thumb, threadLink, when, type Commen
 import { diffBoxes, type Box } from "./diff";
 import { blockChanges, type Changes } from "./blocks";
 import { Glyph } from "./glyphs";
+import { reducedMotion } from "./look";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 export type Opening = { page: Page; from: Rect; hash?: string; place?: boolean };
@@ -46,12 +47,20 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
     return () => removeEventListener("resize", r);
   }, []);
 
+  // the keyboard comes into the viewer, and goes back to where it was when the viewer closes
+  const dialog = useRef<HTMLDivElement>(null);
+  const [was] = useState(() => document.activeElement as HTMLElement | null); // before the canvas goes out of reach
+  useEffect(() => {
+    dialog.current?.focus({ preventScroll: true });
+    return () => { requestAnimationFrame(() => { if (was?.isConnected && was !== document.body) was.focus({ preventScroll: true }); }); };
+  }, []);
+
   // Fly from the card into place; transform only, so it holds frame.
   const flyUp = useRef<Animation | null>(null);
   useLayoutEffect(() => {
     const el = box.current!;
     const t = target();
-    const a = el.animate(
+    const a = reducedMotion() ? el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" }) : el.animate(
       [
         { transform: `translate(${from.x - t.x}px, ${from.y - t.y}px) scale(${from.w / t.w}, ${from.h / t.h})`, borderRadius: `${14 * (t.w / from.w)}px / ${14 * (t.h / from.h)}px` },
         { transform: "none", borderRadius: "18px" },
@@ -75,7 +84,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
     const to = r ? { x: r.left, y: r.top, w: r.width, h: r.height } : from;
     const now = getComputedStyle(el);
     flyUp.current?.cancel();
-    const a = el.animate(
+    const a = reducedMotion() ? el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-in", fill: "forwards" }) : el.animate(
       [
         { transform: now.transform, borderRadius: now.borderRadius },
         { transform: `translate(${to.x - t.x}px, ${to.y - t.y}px) scale(${to.w / t.w}, ${to.h / t.h})`, borderRadius: `${14 * (t.w / to.w)}px / ${14 * (t.h / to.h)}px` },
@@ -107,7 +116,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
   };
 
   return (
-    <>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={`${clean(page.title)}, page`} tabIndex={-1} className="outline-none">
       <div className="fixed inset-0" onClick={() => (draft ? setDraft(null) : close())} />
 
       <div
@@ -166,7 +175,7 @@ export function Stage({ opening, index, onComment, onClosing, onClose }: {
         closing={closing}
         onClose={close}
       />
-    </>
+    </div>
   );
 }
 
@@ -383,15 +392,17 @@ export function Pin({ n, x, y, note, faded }: { n: number; x: number; y: number;
   );
 }
 
-export function Composer({ x, y, n, onSend, onCancel }: { x: number; y: number; n: number; onSend: (t: string) => void; onCancel: () => void }) {
+export function Composer({ x, y, n, onSend, onCancel }: { x: number; y: number; n: number; onSend: (t: string) => void | Promise<void>; onCancel: () => void }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current?.focus(), []);
-  const go = () => {
+  const go = async () => {
     if (!text.trim() || sending) return;
-    setSending(true);
-    onSend(text);
+    setSending(true); setFailed(false);
+    // if it doesn't reach Rounds, the words stay and it says so
+    try { await onSend(text); } catch { setFailed(true); setSending(false); }
   };
   return (
     <div className="absolute" style={{ left: x, top: y }} onClick={(e) => e.stopPropagation()}>
@@ -402,9 +413,11 @@ export function Composer({ x, y, n, onSend, onCancel }: { x: number; y: number; 
         {n}
       </div>
       <div className="glass thick absolute left-6 top-[-22px] flex w-80 items-end gap-2 rounded-[18px] p-2 pl-4" style={{ animation: "wb-pop 260ms var(--ease-out) both" }}>
+        {failed && <div role="alert" className="absolute left-4 top-full mt-1.5 text-[12px] text-[var(--muted)]">Couldn't send. Try again.</div>}
         <textarea
           ref={ref}
           rows={1}
+          aria-label="Note"
           value={text}
           onChange={(e) => {
             setText(e.target.value);

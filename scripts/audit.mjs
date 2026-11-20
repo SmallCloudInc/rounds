@@ -18,7 +18,7 @@ const btn = (label) => p.locator(`button[aria-label="${label}"]`);
 const wait = (ms = 700) => p.waitForTimeout(ms);
 
 // the dock: the day and search, nothing else
-const dock = await p.evaluate(() => [...document.querySelectorAll(".dock button")].map((x) => x.getAttribute("aria-label")));
+const dock = await p.evaluate(() => [...document.querySelectorAll(".dock button")].map((x) => x.dataset.tip));
 check("dock holds the day and search", dock.join(",") === "Timeline (T),Search (/)", dock.join(", "));
 
 // zoom by keys and by pinch
@@ -56,8 +56,8 @@ await p.keyboard.press("Escape"); await wait(300);
 
 // the time machine: one switch
 const panelOpen = () => p.evaluate(() => { const el = document.querySelector("[role=slider][aria-orientation=vertical]")?.closest(".fixed"); return el ? getComputedStyle(el).opacity : "none"; });
-const away = () => p.evaluate(() => document.querySelector("button[aria-label='Timeline (T)']").dataset.away || "");
-await btn("Timeline (T)").click(); await wait(800);
+const away = () => p.evaluate(() => document.querySelector("button[data-tip='Timeline (T)']").dataset.away || "");
+await p.locator("button[data-tip='Timeline (T)']").click(); await wait(800);
 check("timeline opens", (await panelOpen()) === "1");
 await p.screenshot({ path: `${out}/rail-1-open.png` });
 const rr = await p.evaluate(() => { const r = document.querySelector("[role=slider][aria-orientation=vertical]").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
@@ -75,7 +75,7 @@ check("Esc closes it and comes back to today", (await panelOpen()) === "0" && !(
 await p.keyboard.press("t"); await wait(700);
 await p.mouse.click(rr.x + rr.w / 2, rr.y + rr.h / 2 - 90); await wait(1500);
 check("tap a day goes there", !!(await away()), await away());
-await btn("Timeline (T)").click(); await wait(1200);
+await p.locator("button[data-tip='Timeline (T)']").click(); await wait(1200);
 check("closing it comes back to today", (await panelOpen()) === "0" && !(await away()));
 await p.keyboard.press("ArrowLeft"); await wait(1200);
 check("arrow left opens it a day back", (await panelOpen()) === "1" && !!(await away()), await away());

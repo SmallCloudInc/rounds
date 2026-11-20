@@ -43,6 +43,9 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  // closed, the keyboard goes back to where it was
+  const [was] = useState(() => document.activeElement as HTMLElement | null); // before the canvas goes out of reach
+  useEffect(() => () => { requestAnimationFrame(() => { if (was?.isConnected && was !== document.body) was.focus({ preventScroll: true }); }); }, []);
   useEffect(() => input.current?.focus(), []);
 
   const hits = useMemo(() => {
@@ -59,9 +62,13 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
   const go = (h?: Hit) => { if (h) onPick(h); };
 
   return (
-    <div data-chrome>
+    // Esc closes it from anywhere inside, the field or a result
+    <div data-chrome onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
       <div className="fixed inset-0" style={{ background: "rgba(244,246,247,0.4)", animation: "wb-fade 200ms var(--ease-out) both" }} onPointerDown={(e) => { e.stopPropagation(); onClose(); }} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search"
         className="glass thick fixed left-1/2 top-[14vh] w-[min(600px,calc(100vw-48px))] -translate-x-1/2 overflow-hidden rounded-[24px]"
         style={{ animation: "wb-drop 240ms var(--ease-out) both", transformOrigin: "50% 30%" }}
         onPointerDown={(e) => e.stopPropagation()}
@@ -80,14 +87,25 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
             }}
             className="h-full flex-1 bg-transparent text-[17px] tracking-[-0.01em] text-[var(--ink)] outline-none placeholder:text-[var(--quiet)] focus-visible:outline-none"
             placeholder="Search"
+            aria-label="Search"
+            role="combobox"
+            aria-expanded={hits.length > 0}
+            aria-controls="search-results"
+            aria-activedescendant={hits[sel] ? `hit-${sel}` : undefined}
             spellCheck={false}
           />
         </div>
+        {q.trim() && !hits.length && (
+          <div className="border-t px-5 py-4 text-[14px] text-[var(--muted)]" style={{ borderColor: "rgba(21,24,29,0.07)" }} role="status">No results</div>
+        )}
         {hits.length > 0 && (
-          <div className="border-t px-2 py-2" style={{ borderColor: "rgba(21,24,29,0.07)" }}>
+          <div id="search-results" role="listbox" aria-label="Results" className="border-t px-2 py-2" style={{ borderColor: "rgba(21,24,29,0.07)" }}>
             {hits.map((h, i) => (
               <button
                 key={h.key}
+                id={`hit-${i}`}
+                role="option"
+                aria-selected={i === sel}
                 onPointerEnter={() => setSel(i)}
                 onClick={() => go(h)}
                 className="flex h-14 w-full items-center gap-3.5 rounded-[14px] px-3 text-left"

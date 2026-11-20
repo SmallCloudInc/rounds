@@ -6,6 +6,7 @@ import { img, postComment, threadLink, when, type Comment, type Shot } from "./d
 import type { Group } from "./layout";
 import { Btn, Composer, Pin } from "./Stage";
 import { Glyph } from "./glyphs";
+import { reducedMotion } from "./look";
 import type { Rect } from "./Stage";
 
 export type ShotOpening = { group: Group; i: number; from: Rect; place?: boolean };
@@ -54,6 +55,13 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   const [placing, setPlacing] = useState(!!opening.place);
   const [draft, setDraft] = useState<{ x: number; y: number } | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  // the keyboard comes into the viewer, and goes back to where it was when the viewer closes
+  const dialog = useRef<HTMLDivElement>(null);
+  const [was] = useState(() => document.activeElement as HTMLElement | null); // before the canvas goes out of reach
+  useEffect(() => {
+    dialog.current?.focus({ preventScroll: true });
+    return () => { requestAnimationFrame(() => { if (was?.isConnected && was !== document.body) was.focus({ preventScroll: true }); }); };
+  }, []);
   const notes = comments.filter((c) => c.page === shotKey(s));
 
   useEffect(() => { setRect(fitRect(s)); setFull(false); setDraft(null); setWipe(0); onStep(shots[i].key); }, [i]);
@@ -66,10 +74,12 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   // Fly up from the paper; transform only, so it holds frame.
   const flyUp = useRef<Animation | null>(null);
   useLayoutEffect(() => {
-    const a = box.current!.animate(
-      [{ transform: flight(opening.from, rect), borderRadius: `${10 * (rect.w / opening.from.w)}px` }, { transform: "none", borderRadius: "14px" }],
-      { duration: 560, easing: "cubic-bezier(0.3, 0.7, 0.1, 1)" },
-    );
+    const a = reducedMotion()
+      ? box.current!.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" })
+      : box.current!.animate(
+        [{ transform: flight(opening.from, rect), borderRadius: `${10 * (rect.w / opening.from.w)}px` }, { transform: "none", borderRadius: "14px" }],
+        { duration: 560, easing: "cubic-bezier(0.3, 0.7, 0.1, 1)" },
+      );
     flyUp.current = a;
     a.onfinish = () => setLanded(true);
     return () => a.cancel();
@@ -87,10 +97,12 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
     const now = getComputedStyle(box.current!);
     const at = { transform: now.transform, borderRadius: now.borderRadius };
     flyUp.current?.cancel();
-    const a = box.current!.animate(
-      [at, { transform: flight(to, rect), borderRadius: `${10 * (rect.w / to.w)}px` }],
-      { duration: 420, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" },
-    );
+    const a = reducedMotion()
+      ? box.current!.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-in", fill: "forwards" })
+      : box.current!.animate(
+        [at, { transform: flight(to, rect), borderRadius: `${10 * (rect.w / to.w)}px` }],
+        { duration: 420, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" },
+      );
     a.onfinish = onClose;
   };
 
@@ -122,7 +134,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   };
 
   return (
-    <>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={`${group.title}, ${shots.length > 1 ? `screen ${i + 1} of ${shots.length}` : "screen"}`} tabIndex={-1} className="outline-none">
       <div className="fixed inset-0" onClick={() => (draft ? setDraft(null) : close())} />
 
       <div
@@ -135,7 +147,8 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: "inherit" }}>
+        {/* its own layer, so its rounded corners clip the sharp copy fading in (Chrome let it square them) */}
+        <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: "inherit", willChange: "transform" }}>
           {under.src && under.key === shots[i].key && <img src={under.src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />}
           <img key={`m${s.hash}`} src={img(s, 960)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
           {landed && (
@@ -166,6 +179,16 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
             role="slider"
             aria-label="Before and after"
             aria-valuenow={Math.round(wipe * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`Before shown across ${Math.round(wipe * 100)}%`}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              const k = { ArrowLeft: -0.1, ArrowRight: 0.1, Home: -1, End: 1 }[e.key];
+              if (k == null) return;
+              e.preventDefault(); e.stopPropagation();
+              setWipe((w) => Math.min(1, Math.max(0, w + k)));
+            }}
           >
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white shadow-[0_0_0_0.5px_rgba(28,25,20,0.25)]" />
             <div className="glass absolute left-1/2 top-1/2 flex h-11 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-[3px] rounded-full" style={{ position: "absolute" }}>
@@ -205,6 +228,6 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
         <Btn onClick={close} label="Close"><Glyph name="close" /></Btn>
         <style>{`@keyframes wb-up { from { opacity: 0; transform: translateY(16px) } } @keyframes wb-down { to { opacity: 0; transform: translateY(12px) } } @keyframes wb-pin { from { transform: scale(0.4); opacity: 0 } } @keyframes wb-pop { from { opacity: 0; transform: translateY(4px) } }`}</style>
       </div>
-    </>
+    </div>
   );
 }
