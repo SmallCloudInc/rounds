@@ -84,14 +84,14 @@ In auto mode, Claude Code may ask you before acting on a note. Say yes and it ca
 
 | Key | Does |
 | --- | --- |
-| T | Time machine |
+| T | Timeline |
 | ← → | A day back, a day forward |
 | / or ⌘K | Search |
 | + − 0 | Zoom in, zoom out, fit everything |
 | Space | Hold to pan, or to see the before while comparing |
 | Esc | Back out |
 
-Scroll pans and pinch zooms, in the time machine too; scrolling over its rail moves through
+Scroll pans and pinch zooms, in the timeline too; scrolling over its rail moves through
 the days. Drop an image or an HTML file on the canvas to add it to a project.
 
 ### Config
