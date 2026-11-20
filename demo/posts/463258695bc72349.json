@@ -19,13 +19,6 @@
    "w": 2160,
    "h": 1350,
    "name": "sea-sunset"
-  },
-  {
-   "hash": "b6f26af4848e505d",
-   "ext": "jpg",
-   "w": 1179,
-   "h": 1977,
-   "name": "sea-dusk-phone"
   }
  ],
  "before": [
@@ -42,13 +35,6 @@
    "w": 2160,
    "h": 1350,
    "name": "sea-sunset"
-  },
-  {
-   "hash": "4088aa9a1837cb6b",
-   "ext": "jpg",
-   "w": 1179,
-   "h": 1977,
-   "name": "sea-dusk-phone"
   }
  ],
  "range": "9537a91",

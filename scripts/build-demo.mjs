@@ -129,20 +129,20 @@ const T = (s) => new Date(s).getTime(); // a local time, for what has no commit 
     shots: ["73ae468-garden-path", "73ae468-garden-valley"].map((s) => cap(k, s)), before: ["994651e-garden-path", "994651e-garden-valley"].map((s) => cap(k, s)), commits: ["73ae468"] });
 
   post(k, { topic: "Homepage", at: when(k, "c172e13"), session: "ocean", caption: "The desktop as it stands: notes open, the dock back to its approved lift.", shots: [cap(k, "c172e13-home"), cap(k, "c172e13-home-phone")], commits: ["c172e13", "2d84c1e"] });
-  post(k, { topic: "Homepage", at: when(k, "2ecbc6c"), caption: "The lab is the homepage. The Work window is the showcase, with three projects on the water.",
-    shots: [cap(k, "2ecbc6c-home-work"), cap(k, "2ecbc6c-home-phone")], before: [cap(k, "c172e13-home"), cap(k, "c172e13-home-phone")], commits: ["2ecbc6c", "9766d7d", "c476036"] });
+  // Left out: the screens that show the site's profile card (the 2ecbc6c homepage, both sizes, and
+  // the sea at dusk on a phone).
 
   post(k, { topic: "Sky and sea", at: when(k, "d92b7c1"), session: "sea", caption: "A scattered-light sky, clouds, and a faster, truer sea.", shots: [cap(k, "d92b7c1-sea-noon"), cap(k, "d92b7c1-sea-sunset")], commits: ["d92b7c1"] });
   const duskBroken = cap(k, "b639435-sea-dusk");
   post(k, { topic: "Sky and sea", at: when(k, "b639435"), session: "sea", caption: "Grab the sea to look around. A day and night slider, the clock moves the sun, and a moon over the water.",
-    shots: [cap(k, "b639435-sea-noon"), duskBroken, cap(k, "b639435-sea-dusk-phone")], commits: ["b639435"] });
+    shots: [cap(k, "b639435-sea-noon"), duskBroken], commits: ["b639435"] });
   note(duskBroken, 0.45, 0.6, "strange artifacts when I scroll through time on sunrise and sunset.", T("2026-11-04T10:12"), "sea", { text: said(k, "c3c7987"), at: when(k, "c3c7987") });
   const duskPurple = cap(k, "c3c7987-sea-dusk");
   post(k, { topic: "Sky and sea", at: when(k, "c3c7987"), session: "sea", caption: "Twilight no longer goes black or stripes the sea, and the sun sets where it should.",
     shots: [duskPurple, cap(k, "c3c7987-sea-sunset")], before: [duskBroken, cap(k, "b639435-sea-sunset")], commits: ["c3c7987"] });
   note(duskPurple, 0.42, 0.3, "strange banding on sky and the sunset feels way too purple/fuchsia?", T("2026-11-04T12:36"), "sea", { text: said(k, "9537a91"), at: when(k, "9537a91") });
   post(k, { topic: "Sky and sea", at: when(k, "9537a91"), session: "sea", caption: "The twilight sky without its bands, and a sunset that isn't fuchsia.",
-    shots: [cap(k, "9537a91-sea-dusk"), cap(k, "9537a91-sea-sunset"), cap(k, "9537a91-sea-dusk-phone")], before: [duskPurple, cap(k, "c3c7987-sea-sunset"), cap(k, "b639435-sea-dusk-phone")], commits: ["9537a91"] });
+    shots: [cap(k, "9537a91-sea-dusk"), cap(k, "9537a91-sea-sunset")], before: [duskPurple, cap(k, "c3c7987-sea-sunset")], commits: ["9537a91"] });
 
   post(k, { topic: "Top 20", at: when(k, "02022d5"), caption: "The interactive CD collection, published at /top20.", shots: [cap(k, "02022d5-top20")], commits: ["02022d5"] });
   post(k, { topic: "Top 20", at: when(k, "ba2c640"), session: "top20", caption: "Make your own Top 20: a simpler creator, and spines lettered so they travel.",
