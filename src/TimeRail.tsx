@@ -258,6 +258,7 @@ export function TimeRail({ index, asOf, open, onDay, onClose }: {
   return (
     <div
       ref={rail}
+      data-chrome
       className="fixed"
       style={{
         top: 0, right: 0, width: W, height: H,

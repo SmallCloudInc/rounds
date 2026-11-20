@@ -38,6 +38,8 @@ const SPLIT_Z = 0.5;
 // Safari draws each of those layers at full resolution however far out it sits, so the split
 // costs about the groups' own area in memory. A canvas past this stays one layer.
 const SPLIT_BYTES = 640e6;
+// keys typed into a field are the field's; a file picker's hidden input is no field to type in
+const typing = (e: KeyboardEvent) => !!(e.target as HTMLElement)?.closest?.("textarea, input:not([type=file]), [contenteditable]");
 const RAIL_SHIFT = 56; // with the time rail out, the stack steps left to make room
 const STEP = 34;
 
@@ -268,16 +270,21 @@ export default function App() {
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key !== " " || open || (e.target as HTMLElement)?.closest("textarea,input")) return;
+      if (e.key !== " " || open || typing(e)) return;
       e.preventDefault();
       setSpace(true);
     };
-    const up = (e: KeyboardEvent) => { if (e.key === " ") setSpace(false); };
+    // a space let go while a file picker (or another window) had the keyboard never comes back
+    // up here, so coming back to the page lets go of it too
+    const up = (e: KeyboardEvent) => { if (e.key === " ") { setSpace(false); if (!typing(e)) e.preventDefault(); } };
     const blur = () => setSpace(false);
+    const seen = () => { if (document.visibilityState === "visible") setSpace(false); };
     addEventListener("keydown", down);
     addEventListener("keyup", up);
     addEventListener("blur", blur);
-    return () => { removeEventListener("keydown", down); removeEventListener("keyup", up); removeEventListener("blur", blur); };
+    addEventListener("focus", blur);
+    document.addEventListener("visibilitychange", seen);
+    return () => { removeEventListener("keydown", down); removeEventListener("keyup", up); removeEventListener("blur", blur); removeEventListener("focus", blur); document.removeEventListener("visibilitychange", seen); };
   }, [open]);
 
   const drag = useRef<{ x: number; y: number; cx: number; cy: number; vx: number; vy: number; t: number; moved: boolean; space: boolean } | null>(null);
@@ -288,6 +295,8 @@ export default function App() {
   // With space held, the press belongs to the canvas, whatever is under it.
   const onPointerDownCapture = (e: React.PointerEvent) => {
     if (open || e.button !== 0 || !(space || tool === "hand")) return;
+    // the dock, the time rail and search float over the canvas: their buttons stay buttons
+    if ((e.target as HTMLElement).closest("[data-chrome]")) return;
     e.stopPropagation();
     e.preventDefault();
     begin(e, true);
@@ -328,7 +337,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (open || searching || (e.target as HTMLElement)?.closest("textarea,input")) return;
+      if (open || searching || typing(e)) return;
       if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || e.key === "/") { e.preventDefault(); setSearching(true); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "v") setTool("move");

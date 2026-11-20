@@ -54,6 +54,7 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
   return (
     <div
       ref={dock}
+      data-chrome
       onPointerOver={over}
       onPointerLeave={() => { clearTimeout(tipTimer.current); setTip(null); }}
       onPointerDownCapture={() => { clearTimeout(tipTimer.current); setTip(null); }}
@@ -65,6 +66,8 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
         transition: "transform 420ms var(--ease-out), opacity 300ms var(--ease-out)",
       }}
       onPointerDown={(e) => e.stopPropagation()}
+      // a click leaves no focus on the dock, so Space pans the canvas instead of pressing a button
+      onMouseDown={(e) => { if ((e.target as HTMLElement).closest("button")) e.preventDefault(); }}
     >
       <Key label="Move (V)" on={tool === "move"} onClick={() => onTool("move")}><Glyph name="move" /></Key>
       <Key label="Hand (H)" on={tool === "hand"} onClick={() => onTool("hand")}><Glyph name="hand" /></Key>
@@ -76,7 +79,7 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
         multiple
         accept="image/png,image/jpeg,image/webp,.html,.htm"
         className="hidden"
-        onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) onAdd(f); }}
+        onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; e.target.blur(); if (f.length) onAdd(f); }}
       />
       <Rule />
       {/* time: the day the canvas shows (today, or the day you went back to); opens the timeline */}

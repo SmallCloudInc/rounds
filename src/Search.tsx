@@ -59,7 +59,7 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
   const go = (h?: Hit) => { if (h) onPick(h); };
 
   return (
-    <>
+    <div data-chrome>
       <div className="fixed inset-0" style={{ background: "rgba(244,246,247,0.4)", animation: "wb-fade 200ms var(--ease-out) both" }} onPointerDown={(e) => { e.stopPropagation(); onClose(); }} />
       <div
         className="glass thick fixed left-1/2 top-[14vh] w-[min(600px,calc(100vw-48px))] -translate-x-1/2 overflow-hidden rounded-[24px]"
@@ -107,6 +107,6 @@ export function Search({ index, onPick, onClose }: { index: Index; onPick: (h: H
         )}
       </div>
       <style>{`@keyframes wb-fade { from { opacity: 0 } } @keyframes wb-drop { from { opacity: 0; transform: scale(0.97) } }`}</style>
-    </>
+    </div>
   );
 }
