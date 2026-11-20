@@ -95,7 +95,6 @@ export default function App() {
   const camRef = useRef<Cam>({ x: 0, y: 0, z: 0.3 });
   const sheet = useRef({ s: 1, top: 0, dx: 0 });
   sheet.current = tm ? { ...SHEET, dx: timeShown ? -RAIL_SHIFT : 0 } : { s: 1, top: 0, dx: 0 };
-  const rasterZ = useRef(0);
   const settleT = useRef(0);
   const camera = useCamera((c, settled) => {
     camRef.current = c;
@@ -107,18 +106,16 @@ export default function App() {
     // only when it changes: rewriting the same text redrew the dock's glass on every frame of a pan
     const pct = `${Math.round(c.z * 100)}%`;
     if (zoomEl.current && zoomEl.current.textContent !== pct) zoomEl.current.textContent = pct;
-    // When the camera comes to rest: note what's in view (far screens let their images go),
-    // and if the zoom changed, have the layer drawn again at the new scale so text is sharp.
+    // When the camera comes to rest: note what's in view (far screens let their images go).
+    // The world keeps its will-change through every zoom. Dropping it for a frame to redraw text
+    // sharp made Chrome rebuild all ~290 of the canvas's layers, and for a frame or three the
+    // screens, names and dock went blank. Chrome redraws at the new scale on its own, and
+    // WebKit's drawing scale never moved with it.
     clearTimeout(settleT.current);
     if (settled) settleT.current = window.setTimeout(() => {
       updateView(c);
       setNear(c.z > 0.5); // close in, screens load sharper: decided at rest, not mid-gesture
       split();
-      if (el && Math.abs(c.z / (rasterZ.current || 1) - 1) > 0.02) {
-        rasterZ.current = c.z;
-        el.style.willChange = "auto";
-        requestAnimationFrame(() => requestAnimationFrame(() => { el.style.willChange = "transform"; }));
-      }
     }, 180);
     setFar(c.z < 0.42); // a no-op unless the line is crossed
   });
