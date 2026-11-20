@@ -24,6 +24,24 @@ function fitRect(s: Shot): Rect {
 const flight = (from: Rect, to: Rect) =>
   `translate(${from.x - to.x}px, ${from.y - to.y}px) scale(${from.w / to.w}, ${from.h / to.h})`;
 
+// A step to the next screen morphs: each screen keeps its own size the whole way, so a phone
+// never shows cropped inside a desktop frame, and only the frame changes shape around them. The
+// larger lies underneath, solid, and the smaller crossfades on top, so the frame always closes
+// in on, or opens out onto, a real picture.
+
+// A critically damped spring as an easing: it leaves gently, never overshoots, and settles
+// without a long crawl. `response` is Apple's: roughly how long the move takes, in seconds.
+function spring(response: number, ms: number, n = 48) {
+  const w = (2 * Math.PI) / response, f = (t: number) => 1 - (1 + w * t) * Math.exp(-w * t), end = f(ms / 1000);
+  const pts = Array.from({ length: n + 1 }, (_, k) => (f((ms / 1000) * (k / n)) / end).toFixed(4));
+  return typeof CSS !== "undefined" && CSS.supports("transition-timing-function", "linear(0, 1)") ? `linear(${pts.join(", ")})` : "cubic-bezier(0.33, 0, 0.2, 1)";
+}
+const FRAME_MS = 620, FADE_MS = 440;
+const FRAME = spring(0.48, FRAME_MS), FADE = spring(0.34, FADE_MS);
+type Leaving = { key: string; src: string; at: Rect; id: number };
+// the screen as the canvas holds it, already loaded: shown under the larger image until it arrives
+const tileSrc = (key: string) => (document.querySelector(`[data-key="${key}"] img`) as HTMLImageElement | null)?.currentSrc || "";
+
 export function ShotStage({ opening, comments, onComment, onStep, onClosing, onClose }: {
   opening: ShotOpening; comments: Comment[];
   onComment: (c: Comment) => void; onStep: (key: string) => void; onClosing?: () => void; onClose: () => void;
@@ -33,7 +51,10 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
   const [i, setI] = useState(() => Math.max(0, shots.findIndex((s) => s.key === group.items[opening.i]?.key)));
   // The screen as the canvas already holds it, loaded and decoded: it lies under the larger image,
   // so the card never flies up blank (the canvas's copy hides the moment this one shows).
-  const [under] = useState(() => ({ key: shots[i].key, src: (document.querySelector(`[data-key="${shots[i].key}"] img`) as HTMLImageElement | null)?.currentSrc || "" }));
+  const unders = useRef(new Map<string, string>());
+  const underOf = (key: string) => { if (!unders.current.has(key)) unders.current.set(key, tileSrc(key)); return unders.current.get(key)!; };
+  underOf(shots[i].key);
+  const [leaving, setLeaving] = useState<Leaving | null>(null);
   const s = shots[i].shot;
   const thread = shots[i].thread; // a topic gathers sends from many threads; each screen keeps its own
   const [rect, setRect] = useState(() => fitRect(s));
@@ -63,8 +84,16 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
     return () => { requestAnimationFrame(() => { if (was?.isConnected && was !== document.body) was.focus({ preventScroll: true }); }); };
   }, []);
   const notes = comments.filter((c) => c.page === shotKey(s));
+  // this screen's own size, worked out now rather than a render later, so it never shows at the
+  // last screen's size; and which of the two is the larger, for the morph
+  const own = fitRect(s);
+  const oldOver = !leaving || leaving.at.w * leaving.at.h >= own.w * own.h;
 
   useEffect(() => { setRect(fitRect(s)); setFull(false); setDraft(null); setWipe(0); onStep(shots[i].key); }, [i]);
+  // the screens either side, loaded before they're asked for
+  useEffect(() => { for (const j of [i - 1, i + 1]) if (shots[j]) { underOf(shots[j].key); new Image().src = img(shots[j].shot, 960); } }, [i]);
+  // the old screen goes once it has had its moment
+  useEffect(() => { if (!leaving) return; const t = setTimeout(() => setLeaving(null), FRAME_MS + 40); return () => clearTimeout(t); }, [leaving]);
   useEffect(() => {
     const r = () => setRect(fitRect(s));
     addEventListener("resize", r);
@@ -106,7 +135,13 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
     a.onfinish = onClose;
   };
 
-  const step = (d: number) => { if (!closing) setI((x) => Math.max(0, Math.min(shots.length - 1, x + d))); };
+  const step = (d: number) => {
+    const j = Math.max(0, Math.min(shots.length - 1, i + d));
+    if (j === i || closing || !landed) return;
+    // the screen being left, as sharp as it was showing, at its own size
+    setLeaving({ key: shots[i].key, src: full ? img(s) : img(s, 960), at: own, id: performance.now() });
+    setI(j);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,7 +153,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [draft, placing, closing, i]);
+  }, [draft, placing, closing, i, full, landed]);
 
   const send = async (text: string) => {
     if (!draft) return;
@@ -143,36 +178,47 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
         style={{
           left: rect.x, top: rect.y, width: rect.w, height: rect.h, borderRadius: 14, transformOrigin: "0 0",
           boxShadow: "var(--shadow-stage)",
-          transition: landed ? "left 420ms var(--ease-out), top 420ms var(--ease-out), width 420ms var(--ease-out), height 420ms var(--ease-out)" : "none",
+          transition: landed ? ["left", "top", "width", "height"].map((p) => `${p} ${FRAME_MS}ms ${FRAME}`).join(", ") : "none",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* its own layer, so its rounded corners clip the sharp copy fading in (Chrome let it square them) */}
         <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: "inherit", willChange: "transform" }}>
-          {under.src && under.key === shots[i].key && <img src={under.src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />}
-          <img key={`m${s.hash}`} src={img(s, 960)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
-          {landed && (
-            <img
-              key={`f${s.hash}`}
-              src={img(s)}
-              alt=""
-              draggable={false}
-              onLoad={() => setFull(true)}
-              className="absolute inset-0 h-full w-full object-cover object-top"
-              style={{ opacity: full ? 1 : 0, transition: "opacity 260ms var(--ease-out)" }}
-            />
+          {/* morph: the screen being left, at its own size; underneath and solid when it's the larger */}
+          {leaving && oldOver && (
+            <img key={`l${leaving.id}`} src={leaving.src} alt="" draggable={false} className="absolute left-1/2 top-1/2 max-w-none object-cover object-top" style={{ width: leaving.at.w, height: leaving.at.h, transform: "translate(-50%, -50%)" }} />
           )}
-          {bef && (
-            <div className="absolute inset-0" style={{ clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`, transition: flip ? "clip-path 280ms var(--ease-out)" : "none" }}>
-              <img key={`b${bef.hash}`} src={img(bef, 1600)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
-            </div>
+          {/* the screen at its own size, centered: the frame changes shape around it, never the
+              picture; when it's the smaller, it fades in over the one it replaces */}
+          <div key={`c${s.hash}`} className="absolute left-1/2 top-1/2" style={{ width: own.w, height: own.h, transform: "translate(-50%, -50%)", animation: leaving && oldOver ? `wb-fade-in ${FADE_MS}ms ${FADE} both` : undefined }}>
+            {underOf(shots[i].key) && <img src={underOf(shots[i].key)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />}
+            <img key={`m${s.hash}`} src={img(s, 960)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
+            {landed && (
+              <img
+                key={`f${s.hash}`}
+                src={img(s)}
+                alt=""
+                draggable={false}
+                onLoad={() => setFull(true)}
+                className="absolute inset-0 h-full w-full object-cover object-top"
+                style={{ opacity: full ? 1 : 0, transition: "opacity 260ms var(--ease-out)" }}
+              />
+            )}
+            {bef && (
+              <div className="absolute inset-0" style={{ clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`, transition: flip ? "clip-path 280ms var(--ease-out)" : "none" }}>
+                <img key={`b${bef.hash}`} src={img(bef, 1600)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
+              </div>
+            )}
+          </div>
+          {leaving && !oldOver && (
+            <img key={`l${leaving.id}`} src={leaving.src} alt="" draggable={false} className="absolute left-1/2 top-1/2 max-w-none object-cover object-top" style={{ width: leaving.at.w, height: leaving.at.h, transform: "translate(-50%, -50%)", animation: `wb-fade-out ${FADE_MS}ms ${FADE} both` }} />
           )}
           <span className="pointer-events-none absolute inset-0 shadow-[inset_0_0_0_0.5px_rgba(28,25,20,0.14)]" style={{ borderRadius: "inherit" }} />
         </div>
         {bef && !placing && (
           <div
             className="absolute inset-y-0 cursor-ew-resize touch-none"
-            style={{ left: `clamp(0px, calc(${wipe * 100}% - 22px), calc(100% - 44px))`, width: 44, transition: flip ? "left 280ms var(--ease-out)" : "none", opacity: landed && !closing ? 1 : 0 }}
+            style={{ left: `clamp(0px, calc(${wipe * 100}% - 22px), calc(100% - 44px))`, width: 44, transition: flip ? "left 280ms var(--ease-out)" : "none", opacity: landed && !closing && !leaving ? 1 : 0 }}
             onPointerDown={(e) => { wiping.current = true; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
             onPointerMove={(e) => { if (!wiping.current) return; const r = box.current!.getBoundingClientRect(); setWipe(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))); }}
             onPointerUp={() => { wiping.current = false; }}
@@ -198,7 +244,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
           </div>
         )}
         {placing && <div className="absolute inset-0" style={{ cursor: "crosshair" }} onClick={place} />}
-        <div className="pointer-events-none absolute inset-0 [&>*]:pointer-events-auto" style={{ opacity: landed && !closing ? 1 : 0, transition: "opacity 200ms var(--ease-out)" }}>
+        <div className="pointer-events-none absolute inset-0 [&>*]:pointer-events-auto" style={{ opacity: landed && !closing && !leaving ? 1 : 0, transition: "opacity 200ms var(--ease-out)" }}>
           {notes.map((n, k) => <Pin key={n.id} n={k + 1} x={n.x * rect.w} y={n.y * rect.h} note={n} faded={false} />)}
           {draft && <Composer x={draft.x * rect.w} y={draft.y * rect.h} n={notes.length + 1} onSend={send} onCancel={() => setDraft(null)} />}
         </div>
@@ -226,7 +272,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClosing, onC
           </a>
         )}
         <Btn onClick={close} label="Close"><Glyph name="close" /></Btn>
-        <style>{`@keyframes wb-up { from { opacity: 0; transform: translateY(16px) } } @keyframes wb-down { to { opacity: 0; transform: translateY(12px) } } @keyframes wb-pin { from { transform: scale(0.4); opacity: 0 } } @keyframes wb-pop { from { opacity: 0; transform: translateY(4px) } }`}</style>
+        <style>{`@keyframes wb-up { from { opacity: 0; transform: translateY(16px) } } @keyframes wb-down { to { opacity: 0; transform: translateY(12px) } } @keyframes wb-pin { from { transform: scale(0.4); opacity: 0 } } @keyframes wb-pop { from { opacity: 0; transform: translateY(4px) } } @keyframes wb-fade-in { from { opacity: 0 } } @keyframes wb-fade-out { to { opacity: 0 } }`}</style>
       </div>
     </div>
   );
