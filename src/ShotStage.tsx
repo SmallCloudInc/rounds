@@ -30,6 +30,9 @@ export function ShotStage({ opening, comments, onComment, onStep, onClose }: {
   const { group } = opening;
   const shots = group.all.filter((it): it is ShotItem => it.kind === "shot");
   const [i, setI] = useState(() => Math.max(0, shots.findIndex((s) => s.key === group.items[opening.i]?.key)));
+  // The screen as the canvas already holds it, loaded and decoded: it lies under the larger image,
+  // so the card never flies up blank (the canvas's copy hides the moment this one shows).
+  const [under] = useState(() => ({ key: shots[i].key, src: (document.querySelector(`[data-key="${shots[i].key}"] img`) as HTMLImageElement | null)?.currentSrc || "" }));
   const s = shots[i].shot;
   const thread = shots[i].thread; // a topic gathers sends from many threads; each screen keeps its own
   const [rect, setRect] = useState(() => fitRect(s));
@@ -126,6 +129,7 @@ export function ShotStage({ opening, comments, onComment, onStep, onClose }: {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: "inherit" }}>
+          {under.src && under.key === shots[i].key && <img src={under.src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />}
           <img key={`m${s.hash}`} src={img(s, 960)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
           {landed && (
             <img
