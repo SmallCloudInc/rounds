@@ -70,7 +70,7 @@ const panelOpen = () => p.evaluate(() => { const el = document.querySelector("[r
 check("timeline opens", (await panelOpen()) === "1");
 await p.screenshot({ path: `${out}/rail-1-open.png` });
 const rr = await p.evaluate(() => { const r = document.querySelector("[role=slider][aria-orientation=vertical]").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
-const awayTxt = () => p.evaluate(() => document.querySelector("button[aria-label='Timeline (T)']").textContent);
+const awayTxt = () => p.evaluate(() => document.querySelector("button[aria-label='Timeline (T)']").dataset.away || "");
 await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2); await p.mouse.down();
 for (let i = 1; i <= 20; i++) { await p.mouse.move(rr.x + rr.w / 2, rr.y + rr.h / 2 + i * 12); await wait(16); }
 await p.mouse.up(); await wait(1500);

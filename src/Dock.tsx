@@ -79,18 +79,20 @@ export function Dock({ tool, hidden, timeOn, away, zoomRef, onTool, onTime, onZo
         onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; if (f.length) onAdd(f); }}
       />
       <Rule />
-      {/* time: opens the timeline above; when the canvas is on another day, that day rides here */}
+      {/* time: the day the canvas shows (today, or the day you went back to); opens the timeline */}
       <button
         ref={timeBtn}
         onClick={() => timeBtn.current && onTime(timeBtn.current.getBoundingClientRect())}
         aria-label="Timeline (T)"
         aria-pressed={timeOn}
+        data-away={away ?? undefined}
         data-tip="Timeline (T)"
         className="flex h-11 shrink-0 items-center gap-2 rounded-full transition-[background,color,padding] duration-200 active:scale-95"
-        style={{ background: timeOn ? "var(--ink)" : away ? "var(--honey-wash)" : "transparent", color: timeOn ? "white" : "var(--ink)", paddingInline: away ? "13px 16px" : 13 }}
+        style={{ background: timeOn ? "var(--ink)" : away ? "var(--honey-wash)" : "transparent", color: timeOn ? "white" : "var(--ink)", paddingInline: 16 }}
       >
-        <Glyph name="time" />
-        {away && <span className="whitespace-nowrap text-[13px] font-[560] tracking-[-0.01em] [font-variant-numeric:tabular-nums]" style={{ color: timeOn ? "white" : "var(--ink)" }}>{away}</span>}
+        <span className="whitespace-nowrap text-[13px] font-[560] tracking-[-0.01em] [font-variant-numeric:tabular-nums]">
+          {away ?? new Date().toLocaleDateString([], { month: "short", day: "numeric" })}
+        </span>
       </button>
       <Rule />
       <Key label="Zoom out (-)" onClick={() => onZoom(1 / 1.4)}><Glyph name="minus" /></Key>
