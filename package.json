@@ -38,7 +38,7 @@
     "build": "vite build",
     "start": "node bin/rounds.mjs",
     "eval": "node evals/e2e.mjs",
-    "prepack": "vite build"
+    "prepare": "vite build"
   },
   "dependencies": {
     "playwright-core": "1.56.1"

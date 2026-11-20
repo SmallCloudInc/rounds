@@ -1,121 +1,117 @@
-<img src="docs/rounds-mark.svg" alt="" width="64">
+<p align="center">
+  <img src="docs/rounds-mark.svg" width="72" alt="">
+</p>
 
-# Rounds
+<h1 align="center">Rounds</h1>
 
-A local canvas of everything your Claude Code sessions make.
+<p align="center">One canvas for everything your Claude Code sessions make.</p>
 
-The screens a session builds, the pages it publishes and the changes it pushes all land on one
-canvas, grouped by project, topic and moment. A time machine takes the canvas back to any earlier
-day that had work. Open a screen to compare its before and after, or pin a note on it. The note
-goes back into the session that made the screen, which acts on it and answers on the pin.
+[![The Rounds canvas, with The Road, krispuckett.com and Murmur](docs/rounds-og.png)](docs/rounds-film.mp4)
 
-[![The demo canvas: The Road, krispuckett.com and Murmur, with the dock below](docs/rounds-og.png)](docs/rounds-film.mp4)
+<p align="center"><a href="docs/rounds-film.mp4">Watch the film</a> (21 seconds), or <a href="docs/rounds-film-phone.mp4">the cut for phones</a></p>
 
-[Watch the film](docs/rounds-film.mp4), or [the cut for phones](docs/rounds-film-phone.mp4).
+I run a lot of Claude Code sessions at once, and I kept losing track of what each one had made.
+So I built Rounds. The screens a session shows me, the pages it publishes and the changes it
+pushes to main all land on one canvas, sorted by project. I look it over, pin a note on whatever
+needs work, and the note goes back to the session that made it. It all runs on your Mac.
 
-## A first look
+## Try it
 
 ```bash
-npx rounds-app --demo
+npx github:krispuckett/rounds --demo
 ```
 
-This opens the canvas on real work from six of my public projects: my site (krispuckett.com), a
-web game (The Road), a Tour de France gallery (Le Tour), an essay site (Stoked Dad), an open
-source Swift package (Murmur) and an app's landing page (Praxis). Each was rebuilt from its own git
-history, with screens of the work as it stood at each commit and 23 of my real notes, each
-answered by the commit that followed it.
+The demo is my own work: six public projects (my site, a pixel-art game, a Tour de France
+gallery, an essay site, a Swift package and an app's landing page), rebuilt from their git
+history. The 23 notes on it are notes I actually left, each answered by the commit that came
+next. It runs in its own folder and never reads yours.
 
-The demo runs in its own folder, `~/.rounds-demo`. Nothing of yours is read.
+## What it does
+
+### Your sessions' work, by project
+
+![The Road on the canvas: the title screen, a level, and before and after cards under the topic World 1](docs/canvas-project.jpg)
+
+Work lands under the project it was made in, grouped by topic. A topic like "World 1" gathers
+its screens across sessions and days, with the newest on top.
+
+### Notes go back to the session
+
+![A note pinned on a level of The Road, with the session's answer under it](docs/canvas-note.jpg)
+
+Press C, click a screen and pin a note. The next time you type in the session that made it, the
+note comes along with your message. The session makes the fix, posts the new screen and answers
+on the pin. Here I told it Rohan was too hard, and it gave the arrows a warning and kept
+Shadowfax white against the field.
+
+Only that session gets the note, even when two sessions work in the same repo.
+
+### Before and after
+
+![My site's evening sky, too purple on the left and fixed on the right](docs/canvas-compare.jpg)
+
+When a session replaces a screen, the old one stays as its before. Drag the line to compare, or
+hold Space. This is my site's evening sky, before and after I told the session the sunset felt
+way too purple.
+
+### Go back to any day
+
+![The time machine: earlier days stacked behind Thursday, Nov 5, with the rail on the right](docs/canvas-time.jpg)
+
+The clock in the dock stacks up the days that had work. Scroll to step back through them, or
+drag the rail on the right to travel further, and the canvas re-forms to what existed that day.
+
+### Pushes
+
+When a session pushes to main, it records what changed, with the commits and a before and after
+of the screens they touched. An optional git hook catches the pushes you make outside Claude.
 
 ## Set it up
 
-You need macOS, Node 20 or newer, and Claude Code. Rounds sizes screens with `sips`, which comes
-with macOS. Page previews need Chrome or another Chromium browser (Chromium, Edge, Brave); without
-one, pages still open live when you click them.
+You need a Mac, Node 20 or newer, and Claude Code. If you have Chrome or another Chromium
+browser, Rounds uses it for page previews.
 
 ```bash
-npx rounds-app init
+npx github:krispuckett/rounds init
 ```
 
-It asks before each step:
+Init asks before each step:
 
-1. **The MCP server**, so sessions can post their work and read your notes.
-2. **The skill**, named `rounds`, which tells Claude when to post (at natural finishing points,
-   with a topic, a plain caption and a before when there is one) and what to do with a note.
-3. **The hooks**, which bring each session its notes and tie its posts and pushes to it.
-4. **This repo's push hook**, asked only when you run init inside a git repo, so pushes to main
-   made outside Claude show too.
+1. The MCP server, so sessions can post to the canvas and read your notes.
+2. The `rounds` skill, which tells Claude when to post and what to do with a note.
+3. The hooks, which bring each session its notes and record its pushes.
+4. A git hook for the repo you're in, if you're in one, for pushes made outside Claude.
 
-Then it reads your Claude Code transcripts once. Run from npx, init copies Rounds into
-`~/.rounds/app`, so the MCP server and the hooks keep working after npx clears its cache.
-Sessions you start from now on have Rounds; ones already open pick it up when you restart them.
+Then it reads your Claude Code transcripts once, so screens and pages from before you installed
+it show up too. New sessions use Rounds right away; restart any that are already open.
 
 Open the canvas:
 
 ```bash
-npx rounds-app
+npx github:krispuckett/rounds
 ```
 
-It serves on http://localhost:4797 and opens it in your browser.
+It runs at http://localhost:4797.
 
 ## How it works
 
-The MCP server gives sessions these tools:
+The MCP server gives each session four tools:
 
 | Tool | What it does |
 | --- | --- |
-| `rounds_post` | Puts screens (image files) or a page (an HTML file) on the canvas, with a caption and a topic. Give it `before` screens, or the id of a post it replaces, for a before and after. Posting the same HTML file again adds a version. |
-| `rounds_change` | Records a push to main: the commit range, a plain summary, and screens of what changed, before and after. |
-| `rounds_notes` | Lists the notes waiting on this session's work. |
-| `rounds_reply` | Answers a note. The reply shows on the pin. |
+| `rounds_post` | Puts screens or an HTML page on the canvas, with a caption, a topic, and a before when there is one |
+| `rounds_change` | Records a push to main: the commit range, a plain summary, and before and after screens |
+| `rounds_notes` | Lists the notes waiting on this session's work |
+| `rounds_reply` | Answers a note on its pin |
 
-Every screen and page is copied into `~/.rounds`, so it outlives the folder it was saved in.
-Rounds also reads your transcripts in `~/.claude/projects`, so work from before you installed it
-shows too: screens a session sent you with the SendUserFile tool, and pages it published with the
-Artifact tool. `npx rounds-app index` reads them all again.
+A `UserPromptSubmit` hook delivers notes. A `PostToolUse` hook ties each post to its session and
+spots pushes to main by reading git's own log. Each one runs in under 50 ms.
 
-How the canvas sorts your work:
+If a session runs in auto mode, Claude Code's safety check can hold back a change that only a
+note asked for. The session asks you first, and your yes lets it go ahead.
 
-- **Projects** are repos. Work is named for the repo it was made in, unless a rule in the config
-  claims it.
-- **Topics** are lines of work inside a project, like "Checkout form", named by the session when
-  it posts. A topic gathers its work across sessions and days.
-- **Moments** are one thing shown at one time: a set of screens with its caption, a version of a
-  page, or a pushed change. A moment that replaces an earlier one carries its before and after.
-
-### Notes
-
-Pick the comment tool (C), click a screen or a page, and pin a note. The pin says where the note
-will go. The next time you type in the session that made that work, a `UserPromptSubmit` hook
-brings the note in with your message. Only that session gets it, so two sessions in one repo each
-hear only about their own work, and each note arrives once. The session acts on it, posts the
-result with the old screen as its before, and answers on the pin.
-
-A note on work no session made stays on the canvas, and its pin says so.
-
-In auto mode, Claude Code's safety check can hold back a change that only a note asked for. The
-session then asks you, and your yes lets it go ahead.
-
-### Pushes
-
-When a session runs `git push`, a `PostToolUse` hook reads the remote branch's own log. If the
-push reached main, the hook asks the session to record the change with `rounds_change`. The same
-hook ties each post to the session that made it, so notes find their way back right away. Each
-hook runs in under 50 ms.
-
-The optional push hook from init covers pushes made outside Claude: it records the commits and
-the files they touched as a change on the canvas.
-
-### The time machine
-
-The clock in the dock opens the days as a stack, with a rail down the right edge. Scroll over the
-stack to step back through the days that had work, one sheet at a time. Scroll, drag or pinch the
-rail to travel further, or tap a day. The canvas re-forms to what existed then.
-
-### Getting around
-
-Two-finger scroll pans and pinch zooms. With a mouse, ⌘ scroll zooms. Drop an image or an HTML
-file on the canvas to add it to a project yourself.
+<details>
+<summary>Keys</summary>
 
 | Key | Does |
 | --- | --- |
@@ -127,23 +123,23 @@ file on the canvas to add it to a project yourself.
 | Space | Hold to pan; while comparing, hold to see the before |
 | Esc | Back out of whatever is open, then back to today |
 
+Two-finger scroll pans and pinch zooms. With a mouse, ⌘ scroll zooms. Drop an image or an HTML
+file on the canvas to add it to a project yourself.
+
+</details>
+
 ## Privacy
 
-Rounds keeps everything in `~/.rounds` on your Mac. Its server listens on 127.0.0.1 and answers
-only requests addressed to this machine. It takes changes, like a new note, only from pages this
-machine serves or from programs running on it, so a website you visit can't read your canvas or
-post a note to it. That matters because a note reaches a session as your own words.
+Everything lives in `~/.rounds` on your Mac. The server listens on 127.0.0.1 and turns away
+requests from websites, so a page you visit can't read your canvas or slip a note into a session.
 
-What does reach Claude goes through your own Claude Code:
+A note reaches its session the same way your typing does. Screens found in old transcripts come
+without a topic, so Rounds asks Claude Haiku to file them through your own `claude -p`, sending
+each one's caption, session name and file names. Anything that matches a word in your `private`
+list is never indexed at all.
 
-- A note you pin goes into its session, like anything you type there.
-- Screens found in transcripts come without a topic. To file them, the canvas asks Claude Haiku
-  with `claude -p`, sending each one's caption, its session's name and its file names. Posts
-  that name their topic skip this.
-
-Work that matches a word in `private` is never indexed, so none of it is shown or sent.
-
-## Config
+<details>
+<summary>Config</summary>
 
 `~/.rounds/config.json`. Every field is optional.
 
@@ -164,7 +160,7 @@ Work that matches a word in `private` is never indexed, so none of it is shown o
 - **home** names work that belongs to no project, like a session run from your home folder.
 - **port** is where the canvas serves.
 - **relay**, for the Claude desktop app: with a session running `relay/RELAY.md`, a note reaches
-  its session the moment you pin it, instead of with your next message there.
+  its session the moment you pin it.
 
 Environment variables override the defaults:
 
@@ -172,38 +168,36 @@ Environment variables override the defaults:
 | --- | --- |
 | `ROUNDS_HOME` | The data folder, instead of `~/.rounds` |
 | `ROUNDS_PORT` | The port, instead of the config's |
-| `ROUNDS_CLAUDE_HOME` | The Claude folder to read, instead of `~/.claude`. Point it at a stand-in folder and init writes there, leaving your real Claude setup alone. |
+| `ROUNDS_CLAUDE_HOME` | The Claude folder to read, instead of `~/.claude`. Point it at a stand-in and init writes there, leaving your real setup alone. |
 | `ROUNDS_DESKTOP_SESSIONS` | Where the Claude desktop app keeps its session records |
 | `ROUNDS_BROWSER` | The Chromium browser for page previews, or `none` to turn them off |
+
+</details>
 
 ## Uninstall
 
 ```bash
-npx rounds-app uninstall
+npx github:krispuckett/rounds uninstall
 ```
 
-This takes out what init added: the MCP server, the skill, the hooks, the copy in
-`~/.rounds/app`, and the push hook of the repo you run it from. Your canvas stays in
-`~/.rounds`; delete that folder to remove it too. If init added the hooks, your Claude settings
-from before it are in `~/.claude/settings.json.before-rounds`.
+This removes the MCP server, the skill, the hooks, the copy in `~/.rounds/app` and the git hook
+of the repo you run it from. Your canvas stays in `~/.rounds` until you delete it. If init
+changed your Claude settings, the earlier ones are saved as
+`~/.claude/settings.json.before-rounds`.
 
 ## Develop
 
 ```bash
 npm install
 npm run dev     # the canvas with live reload, on :4797
-npm run index   # read every transcript again
 npm run eval    # the whole loop with real Claude sessions
 ```
 
 The canvas is Vite, React and TypeScript. The server, the MCP server and the hooks are plain
-Node. The one runtime dependency is playwright-core, which drives the browser for page previews.
-
-`npm run eval` runs the whole loop with real Claude Code sessions in a throwaway folder: a session
-posts a screen, a note is pinned on it, the session makes the fix and answers on the pin, then it
-commits and pushes, and the push is recorded. That's 15 checks, about $1.25 a run. It needs
-Claude Code signed in, Rounds set up with init, and Google Chrome for the captures.
+Node, and the one runtime dependency is playwright-core, for page previews. `npm run eval` takes
+real Claude Code sessions through the whole loop in a throwaway folder (post, note, fix, reply,
+push) and checks 15 things on the way, for about $1.25 a run.
 
 ## License
 
-MIT
+MIT. Made by [Kris Puckett](https://krispuckett.com).

@@ -7,7 +7,7 @@ export function Empty() {
         <p className="mt-3 text-[15px] leading-[1.5] text-[var(--muted)]">
           When a Claude session shows you a screen, publishes a page or pushes to main, it lands here, under its project.
         </p>
-        <p className="type-mono pointer-events-auto mt-6 select-all text-[13px] text-[var(--quiet)]">npx rounds-app --demo</p>
+        <p className="type-mono pointer-events-auto mt-6 select-all text-[13px] text-[var(--quiet)]">npx github:krispuckett/rounds --demo</p>
       </div>
       <style>{"@keyframes wb-empty { from { opacity: 0; transform: translateY(6px) } }"}</style>
     </div>

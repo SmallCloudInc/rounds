@@ -180,7 +180,7 @@ async function init() {
   const { buildIndex } = await import("../server/indexer.mjs");
   await buildIndex({ log: (l) => say(`  ${l}`) });
   say();
-  say(`Done. Open the canvas with: ${fromNpx ? "npx rounds-app" : `node ${quote(path.join(ROOT, "bin", "rounds.mjs"))}`}`);
+  say(`Done. Open the canvas with: ${fromNpx ? "npx github:krispuckett/rounds" : `node ${quote(path.join(ROOT, "bin", "rounds.mjs"))}`}`);
   say("New Claude sessions have Rounds; ones already open pick it up when you start them again.");
 }
 
