@@ -42,8 +42,17 @@ between versions.
 
 Capture what the user would actually see:
 
-- A web app: a real browser at a real size (Playwright, or the browser tools you have). Wait for
-  fonts and images to load.
+- A web app: `agent-browser`, at a real size, once fonts and images have loaded. One session per
+  capture run, so its window size holds:
+
+  ```sh
+  agent-browser --session shots set viewport 1440 900   # 390 844 for a phone
+  agent-browser --session shots open http://localhost:4320/
+  agent-browser --session shots wait --load networkidle
+  agent-browser --session shots wait --fn "document.fonts.status === 'loaded'"
+  agent-browser --session shots screenshot shots/before-1440.png   # --full: whole page
+  agent-browser --session shots close
+  ```
 - An iOS app: the simulator's own screenshot.
 - Before and after: same window size, same data, same scroll position. Take the before first,
   before you change anything, when you know a change is coming.
