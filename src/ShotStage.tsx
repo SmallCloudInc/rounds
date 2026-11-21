@@ -205,8 +205,11 @@ export function ShotStage({ opening, comments, gone, onComment, onStep, onClosin
               />
             )}
             {bef && (
-              <div className="absolute inset-0" style={{ clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`, transition: flip ? "clip-path 280ms var(--ease-out)" : "none" }}>
-                <img key={`b${bef.hash}`} src={img(bef, 1600)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-top" />
+              <div className="absolute inset-0 overflow-hidden" style={{ background: "var(--wall-deep)", clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`, transition: flip ? "clip-path 280ms var(--ease-out)" : "none" }}>
+                {/* at its own proportions, across the full width and from the top: a before of
+                    another height (a section that grew, a page that got longer) lines up with the
+                    after where they share content, and is never stretched to the after's frame */}
+                <img key={`b${bef.hash}`} src={img(bef, 1600)} alt="" draggable={false} className="absolute left-0 top-0 w-full max-w-none" style={{ height: `${((bef.h / bef.w) / (s.h / s.w)) * 100}%` }} />
               </div>
             )}
           </div>
