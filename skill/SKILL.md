@@ -56,6 +56,10 @@ Capture what the user would actually see:
 - An iOS app: the simulator's own screenshot.
 - Before and after: same window size, same data, same scroll position. Take the before first,
   before you change anything, when you know a change is coming.
+- Pair only what changed. Each after goes with the before of the same view, in the same order;
+  leave out screens that look the same in both, and never give an image as its own before. The
+  compare lines the two up from the top, so crop both to the same region (the whole section or
+  the whole page, not a piece that grew).
 
 Save captures somewhere that lasts long enough to post (the project's own screenshots folder is
 good; Rounds copies them into its store when you post).
