@@ -11,6 +11,7 @@ import { buildIndex, keepImage, hasSips, which, DATA, STORE, IMG } from "./index
 import { pastPushes, importPushes } from "./history.mjs";
 import { applyMoves, fileTopics, filePostTopics, loadTopics } from "./topics.mjs";
 import { POSTS, projects, loadConfig } from "./config.mjs";
+import { guard } from "./guard.mjs";
 
 const SHOTS = path.join(DATA, "shots");
 const SIZED = path.join(DATA, "sized");
@@ -268,19 +269,8 @@ const json = (res, v, code = 200) => { res.statusCode = code; res.setHeader("con
 
 // The API as plain middleware: the Vite plugin below uses it in development, and
 // server/serve.mjs uses it to run the built canvas with no Vite at all.
-// Only this machine, by its own name. A page on any website can send requests to localhost, and
-// one that renames itself to a local address (DNS rebinding) could read the canvas; notes reach
-// Claude sessions as the person's own words, so a forged one would be an instruction from a
-// stranger. The API answers only requests addressed to a local host name, and changes only
-// from pages it served itself (or from no page at all: the MCP server, scripts, curl).
-const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
-const fromHere = (req) => {
-  if (!LOCAL.test(String(req.headers.host || ""))) return false;
-  if (req.method === "GET" || req.method === "HEAD") return true;
-  const origin = req.headers.origin;
-  if (!origin) return true;
-  try { return LOCAL.test(new URL(origin).host); } catch { return false; }
-};
+// Only this machine, by its own name, or its tailnet name when one is set: see server/guard.mjs.
+const fromHere = guard();
 
 export async function handle(req, res, next) {
         const url = new URL(req.url, "http://x");

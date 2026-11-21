@@ -115,11 +115,26 @@ the days. Drop an image or an HTML file on the canvas to add it to a project.
 `projects` groups work by words in its session, folder or caption. Anything matching `private`
 never shows up. `ROUNDS_HOME` and `ROUNDS_PORT` override the folder and the port.
 
+### On your tailnet
+
+The canvas listens on 127.0.0.1 only. To open it from your other devices, put it behind
+`tailscale serve` (tailnet only, not funnel) and tell Rounds the name it's reached by:
+
+```bash
+tailscale serve --bg --https=4797 http://127.0.0.1:4797
+ROUNDS_TAILNET_HOST=laptop.example.ts.net ROUNDS_TAILNET_USER=you@example.com rounds --no-open
+```
+
+Anyone on the tailnet can see the canvas through that name; only the logins in
+`ROUNDS_TAILNET_USER` (comma separated, as `tailscale serve` passes them in
+`Tailscale-User-Login`) can pin notes or change anything. Leave it out for a read-only canvas.
+
 ### Develop
 
 ```bash
 npm install
 npm run dev     # the canvas, on :4797
+npm test        # unit tests
 npm run eval    # the whole loop with real Claude sessions
 ```
 
